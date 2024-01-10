@@ -56,3 +56,41 @@ func (s *sessions) cleanExpired() {
 		delete(s.list, id)
 	}
 }
+
+func (s *sessions) exportSnapshot() []sessionSnapshot {
+	s.mtx.RLock()
+	defer s.mtx.RUnlock()
+	snapshot := []sessionSnapshot{}
+	for _, session := range s.list {
+		transactions := []transactionSnapshot{}
+		for _, transaction := range session.settler.Expenses() {
+			transactions = append(transactions, transactionSnapshot{
+				Amount:       transaction.Amount,
+				Payer:        transaction.Payer,
+				Participants: transaction.Participants,
+			})
+		}
+		snapshot = append(snapshot, sessionSnapshot{
+			ID:           session.id,
+			Transactions: transactions,
+			Expire:       session.expire.Unix(),
+		})
+	}
+	return snapshot
+}
+
+func (s *sessions) importSnapshot(snapshot []sessionSnapshot) {
+	s.mtx.Lock()
+	defer s.mtx.Unlock()
+	for _, snapshotData := range snapshot {
+		newSession := &session{
+			id:      snapshotData.ID,
+			settler: settler.NewSettler(),
+			expire:  time.Unix(snapshotData.Expire, 0),
+		}
+		for _, t := range snapshotData.Transactions {
+			newSession.settler.AddExpense(t.Payer, t.Participants, t.Amount)
+		}
+		s.list[snapshotData.ID] = newSession
+	}
+}

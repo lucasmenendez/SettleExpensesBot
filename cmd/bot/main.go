@@ -2,58 +2,45 @@ package main
 
 import (
 	"context"
+	"fmt"
+	"log"
 	"os"
-	"strconv"
-	"strings"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/lucasmenendez/expensesbot/bot"
 )
-
-func parseStrs(strs string) []string {
-	return strings.Split(strings.TrimSpace(strs), ",")
-}
-
-func parseIDs(ids string) ([]int64, error) {
-	var parsedIDs []int64
-	for _, strID := range parseStrs(ids) {
-		intID, err := strconv.ParseInt(strID, 10, 64)
-		if err != nil {
-			return nil, err
-		}
-		parsedIDs = append(parsedIDs, intID)
-	}
-	return parsedIDs, nil
-}
 
 func main() {
 	// parse env variables
 	telegramToken := os.Getenv("TELEGRAM_TOKEN")
 	if telegramToken == "" {
-		panic("token, username and password are required")
+		log.Fatal("token, username and password are required")
 	}
-	// parse admin users
-	adminUsersIDs, err := parseIDs(os.Getenv("ADMIN_USER_IDS"))
-	if err != nil {
-		panic(err)
-	}
-	// parse admin users
-	adminUsersAliases := parseStrs(os.Getenv("ADMIN_USER_ALIASES"))
-	if len(adminUsersAliases) == 0 {
-		panic("at least one admin user alias is required")
-	} else if len(adminUsersIDs) != len(adminUsersAliases) {
-		panic("admin user ids and aliases must have the same length")
-	}
-	adminUsers := make(map[int64]string)
-	for i, id := range adminUsersIDs {
-		adminUsers[id] = adminUsersAliases[i]
+	snapshotPath := os.Getenv("SNAPSHOT_PATH")
+	if snapshotPath == "" {
+		snapshotPath = "./snapshot.json"
 	}
 	// create and start the bot
-	b := bot.New(context.Background(), telegramToken, adminUsers)
-	if err := b.Start(); err != nil {
-		panic(err)
+	b, err := bot.New(context.Background(), bot.BotConfig{
+		Token:          telegramToken,
+		SnapshotPath:   snapshotPath,
+		ExpirationDays: 120,
+	})
+	if err != nil {
+		log.Fatal(err)
 	}
-	defer b.Stop()
-	// wait for ever to keep the bot running
-	// TODO: add a signal handler to stop the bot
-	b.Wait()
+	if err := b.Start(); err != nil {
+		log.Fatal(err)
+	}
+	log.Printf("bot started at %s\n", time.Now().Format(time.RFC850))
+	// wait until an interrupt received
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
+	<-c
+	fmt.Println("")
+	log.Printf("received SIGTERM, exiting at %s\n", time.Now().Format(time.RFC850))
+	// stop the bot
+	b.Stop()
 }

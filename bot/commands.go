@@ -139,18 +139,11 @@ func (b *Bot) handleAddUser(update tgapi.Update) error {
 	if err != nil {
 		return fmt.Errorf("invalid user id")
 	}
-	if userAlias, exists := b.allowedUsers.Load(userID); exists {
-		sAlias, ok := userAlias.(string)
-		if !ok {
-			return fmt.Errorf("invalid user alias")
-		}
-		msg := tgapi.NewMessage(update.Message.Chat.ID, fmt.Sprintf("User %s (%d) already added\n", sAlias, userID))
-		_, err := b.api.Send(msg)
+	userAlias := args[1]
+	if err := b.auth.AddAllowedUser(userID, userAlias); err != nil {
 		return err
 	}
-	userAlias := args[1]
-	b.allowedUsers.Store(userID, userAlias)
-	msg := tgapi.NewMessage(update.Message.Chat.ID, fmt.Sprintf("User %s (%d) added\n", userAlias, userID))
+	msg := tgapi.NewMessage(update.Message.Chat.ID, "User added")
 	_, err = b.api.Send(msg)
 	return err
 }
@@ -161,18 +154,9 @@ func (b *Bot) handleRemoveUser(update tgapi.Update) error {
 	if err != nil {
 		return fmt.Errorf("invalid user id")
 	}
-
-	if userAlias, exists := b.allowedUsers.Load(userID); exists {
-		sAlias, ok := userAlias.(string)
-		if !ok {
-			return fmt.Errorf("invalid user alias")
-		}
-		msg := tgapi.NewMessage(update.Message.Chat.ID, fmt.Sprintf("User %s (%d) removed\n", sAlias, userID))
-		if _, err := b.api.Send(msg); err != nil {
-			return err
-		}
-		b.allowedUsers.Delete(userID)
-		return nil
+	if found := b.auth.RemoveAllowedUser(userID); found {
+		_, err := b.api.Send(tgapi.NewMessage(update.Message.Chat.ID, "User removed"))
+		return err
 	}
 	msg := tgapi.NewMessage(update.Message.Chat.ID, fmt.Sprintf("User %d not found\n", userID))
 	_, err = b.api.Send(msg)
@@ -181,19 +165,7 @@ func (b *Bot) handleRemoveUser(update tgapi.Update) error {
 
 // format: /listusers
 func (b *Bot) handleListUsers(update tgapi.Update) error {
-	users := map[int64]string{}
-	b.allowedUsers.Range(func(iUserID, iAlias interface{}) bool {
-		userID, ok := iUserID.(int64)
-		if !ok {
-			return false
-		}
-		sAlias, ok := iAlias.(string)
-		if !ok {
-			return false
-		}
-		users[userID] = sAlias
-		return true
-	})
+	users := b.auth.ListAllowedUsers()
 	if len(users) == 0 {
 		msg := tgapi.NewMessage(update.Message.Chat.ID, "No users allowed yet\n")
 		_, err := b.api.Send(msg)
