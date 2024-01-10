@@ -3,29 +3,42 @@ package bot
 import (
 	"context"
 	"log"
+	"sync"
 
 	tgapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
-	"github.com/lucasmenendez/expensesbot/settler"
 )
 
 type Bot struct {
-	token    string
-	handlers map[string]handler
+	// config
+	token string
+	// users
+	admins       []int64
+	allowedUsers []int64
+	allowedMtx   sync.Mutex
+	// handlers
+	handlers      map[string]handler
+	adminHandlers map[string]handler
+	// context and sessions
 	ctx      context.Context
 	cancel   context.CancelFunc
-	// third party structs
-	settler *settler.Settler
-	api     *tgapi.BotAPI
+	sessions *sessions
+	// third party apis
+	api *tgapi.BotAPI
 }
 
-func New(ctx context.Context, token string) *Bot {
+func New(ctx context.Context, token string, admins []int64) *Bot {
+	// create a new context for the bot and initialize it
 	botCtx, cancel := context.WithCancel(ctx)
 	b := &Bot{
-		token:   token,
-		ctx:     botCtx,
-		cancel:  cancel,
-		settler: settler.NewSettler(),
+		token:        token,
+		admins:       admins,
+		allowedUsers: admins,
+		allowedMtx:   sync.Mutex{},
+		ctx:          botCtx,
+		cancel:       cancel,
+		sessions:     initSessions(3),
 	}
+	// initialize the handlers and admin handlers and register the bot
 	b.handlers = map[string]handler{
 		ADD_EXPENSE_CMD:      b.handleAddExpense,
 		ADD_FOR_EXPENSE_CMD:  b.handleAddForExpense,
@@ -34,9 +47,17 @@ func New(ctx context.Context, token string) *Bot {
 		SETTLE_CMD:           b.handleSettle,
 		SETTLE_AND_CLEAN_CMD: b.handleSettleAndClean,
 	}
+	b.adminHandlers = map[string]handler{
+		ADD_USER_CMD:    b.handleAddUser,
+		REMOVE_USER_CMD: b.handleRemoveUser,
+		LIST_USERS_CMD:  b.handleListUsers,
+	}
 	return b
 }
 
+// Start method starts the bot and returns an error if something goes wrong.
+// It starts a goroutine that listens to the updates from the bot and executes
+// the corresponding handler only if the user is allowed to use it.
 func (b *Bot) Start() error {
 	// init bot api and attach it to the current bot instance
 	var err error
@@ -57,29 +78,23 @@ func (b *Bot) Start() error {
 				return
 			case update := <-updateChan:
 				if update.Message != nil || update.Message.IsCommand() {
-					switch update.Message.Command() {
-					case ADD_EXPENSE_CMD:
-						if err := b.handleAddExpense(update); err != nil {
-							log.Println(err)
+					normalHandler, isNormalHandler := b.handlers[update.Message.Command()]
+					adminHandler, isAdminHandler := b.adminHandlers[update.Message.Command()]
+					// if the command is not registered, ignore it
+					if !isNormalHandler && !isAdminHandler {
+						continue
+					}
+					// if the command is registered, check if the user is allowed
+					// to use it before executing it, no matter if it is an admin
+					// command or not
+					if isAdminHandler {
+						if b.isAdmin(update.Message.From.ID) {
+							if err := adminHandler(update); err != nil {
+								log.Println(err)
+							}
 						}
-					case ADD_FOR_EXPENSE_CMD:
-						if err := b.handleAddForExpense(update); err != nil {
-							log.Println(err)
-						}
-					case LIST_EXPENSES_CMD:
-						if err := b.handleListExpenses(update); err != nil {
-							log.Println(err)
-						}
-					case REMOVE_EXPENSE_CMD:
-						if err := b.handleRemoveExpense(update); err != nil {
-							log.Println(err)
-						}
-					case SETTLE_CMD:
-						if err := b.handleSettle(update); err != nil {
-							log.Println(err)
-						}
-					case SETTLE_AND_CLEAN_CMD:
-						if err := b.handleSettleAndClean(update); err != nil {
+					} else if isNormalHandler && b.isAllowed(update.Message.From.ID) {
+						if err := normalHandler(update); err != nil {
 							log.Println(err)
 						}
 					}
@@ -90,10 +105,34 @@ func (b *Bot) Start() error {
 	return nil
 }
 
+// Stop method stops the bot.
 func (b *Bot) Stop() {
 	b.cancel()
 }
 
+// Wait method blocks until the bot is stopped.
 func (b *Bot) Wait() {
 	<-b.ctx.Done()
+}
+
+// AddUser method adds a user to the list of admin users.
+func (b *Bot) isAdmin(userID int64) bool {
+	for _, adminID := range b.admins {
+		if adminID == userID {
+			return true
+		}
+	}
+	return false
+}
+
+// AddUser method adds a user to the list of allowed users.
+func (b *Bot) isAllowed(userID int64) bool {
+	b.allowedMtx.Lock()
+	defer b.allowedMtx.Unlock()
+	for _, allowedID := range b.allowedUsers {
+		if allowedID == userID {
+			return true
+		}
+	}
+	return false
 }

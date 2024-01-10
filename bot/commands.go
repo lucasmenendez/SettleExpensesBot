@@ -15,6 +15,9 @@ const (
 	REMOVE_EXPENSE_CMD   = "remove"
 	SETTLE_CMD           = "summary"
 	SETTLE_AND_CLEAN_CMD = "settle"
+	ADD_USER_CMD         = "adduser"
+	REMOVE_USER_CMD      = "removeuser"
+	LIST_USERS_CMD       = "listusers"
 )
 
 type handler func(tgapi.Update) error
@@ -36,7 +39,8 @@ func (b *Bot) handleAddExpense(update tgapi.Update) error {
 		return fmt.Errorf("invalid amount")
 	}
 	payer := fmt.Sprintf("@%s", update.Message.From.UserName)
-	b.settler.AddExpense(payer, participants, amount)
+	settler := b.sessions.getOrCreate(update.Message.Chat.ID)
+	settler.AddExpense(payer, participants, amount)
 
 	text := fmt.Sprintf("Ok, %s paid %.2f for %s\n", payer, amount, strings.Join(participants, ", "))
 	msg := tgapi.NewMessage(update.Message.Chat.ID, text)
@@ -60,7 +64,8 @@ func (b *Bot) handleAddForExpense(update tgapi.Update) error {
 	if err != nil {
 		return fmt.Errorf("invalid amount")
 	}
-	b.settler.AddExpense(payer, participants, amount)
+	settler := b.sessions.getOrCreate(update.Message.Chat.ID)
+	settler.AddExpense(payer, participants, amount)
 
 	text := fmt.Sprintf("Ok, %s paid %.2f for %s\n", payer, amount, strings.Join(participants, ", "))
 	msg := tgapi.NewMessage(update.Message.Chat.ID, text)
@@ -70,7 +75,8 @@ func (b *Bot) handleAddForExpense(update tgapi.Update) error {
 
 // format: /list
 func (b *Bot) handleListExpenses(update tgapi.Update) error {
-	expenses := b.settler.Expenses()
+	settler := b.sessions.getOrCreate(update.Message.Chat.ID)
+	expenses := settler.Expenses()
 	if len(expenses) == 0 {
 		msg := tgapi.NewMessage(update.Message.Chat.ID, "No expenses yet\n")
 		_, err := b.api.Send(msg)
@@ -91,7 +97,8 @@ func (b *Bot) handleRemoveExpense(update tgapi.Update) error {
 	if err != nil {
 		return fmt.Errorf("invalid id")
 	}
-	b.settler.RemoveExpense(id)
+	settler := b.sessions.getOrCreate(update.Message.Chat.ID)
+	settler.RemoveExpense(id)
 	msg := tgapi.NewMessage(update.Message.Chat.ID, fmt.Sprintf("Expense %d removed\n", id))
 	_, err = b.api.Send(msg)
 	return err
@@ -99,7 +106,8 @@ func (b *Bot) handleRemoveExpense(update tgapi.Update) error {
 
 // format: /summary
 func (b *Bot) handleSettle(update tgapi.Update) error {
-	transactions := b.settler.Settle()
+	settler := b.sessions.getOrCreate(update.Message.Chat.ID)
+	transactions := settler.Settle()
 	msg := tgapi.NewMessage(update.Message.Chat.ID, "Settlement:\n")
 	for _, transaction := range transactions {
 		msg.Text += fmt.Sprintf(" - %s must pay %.2f to %s\n", transaction.Payer, transaction.Amount, transaction.Participants[0])
@@ -110,12 +118,71 @@ func (b *Bot) handleSettle(update tgapi.Update) error {
 
 // format: /settle
 func (b *Bot) handleSettleAndClean(update tgapi.Update) error {
-	transactions := b.settler.SettleAndClean()
+	settler := b.sessions.getOrCreate(update.Message.Chat.ID)
+	transactions := settler.SettleAndClean()
 	msg := tgapi.NewMessage(update.Message.Chat.ID, "Settlement:\n")
 	for _, transaction := range transactions {
 		msg.Text += fmt.Sprintf(" - %s must pay %.2f to %s\n", transaction.Payer, transaction.Amount, transaction.Participants[0])
 	}
 	msg.Text += "Expenses cleaned"
+	_, err := b.api.Send(msg)
+	return err
+}
+
+// format: /adduser 123456789
+func (b *Bot) handleAddUser(update tgapi.Update) error {
+	userID, err := strconv.ParseInt(update.Message.CommandArguments(), 10, 64)
+	if err != nil {
+		return fmt.Errorf("invalid user id")
+	}
+
+	b.allowedMtx.Lock()
+	defer b.allowedMtx.Unlock()
+	for _, id := range b.allowedUsers {
+		if id == userID {
+			msg := tgapi.NewMessage(update.Message.Chat.ID, fmt.Sprintf("User %d already added\n", userID))
+			_, err := b.api.Send(msg)
+			return err
+		}
+	}
+
+	b.allowedUsers = append(b.allowedUsers, userID)
+	msg := tgapi.NewMessage(update.Message.Chat.ID, fmt.Sprintf("User %d added\n", userID))
+	_, err = b.api.Send(msg)
+	return err
+}
+
+// format: /removeuser 123456789
+func (b *Bot) handleRemoveUser(update tgapi.Update) error {
+	userID, err := strconv.ParseInt(update.Message.CommandArguments(), 10, 64)
+	if err != nil {
+		return fmt.Errorf("invalid user id")
+	}
+
+	b.allowedMtx.Lock()
+	defer b.allowedMtx.Unlock()
+	for i, id := range b.allowedUsers {
+		if id == userID {
+			b.allowedUsers = append(b.allowedUsers[:i], b.allowedUsers[i+1:]...)
+			msg := tgapi.NewMessage(update.Message.Chat.ID, fmt.Sprintf("User %d removed\n", userID))
+			_, err := b.api.Send(msg)
+			return err
+		}
+	}
+
+	msg := tgapi.NewMessage(update.Message.Chat.ID, fmt.Sprintf("User %d not found\n", userID))
+	_, err = b.api.Send(msg)
+	return err
+}
+
+// format: /listusers
+func (b *Bot) handleListUsers(update tgapi.Update) error {
+	b.allowedMtx.Lock()
+	defer b.allowedMtx.Unlock()
+	msg := tgapi.NewMessage(update.Message.Chat.ID, "Users allowed:\n")
+	for _, id := range b.allowedUsers {
+		msg.Text += fmt.Sprintf(" - %d\n", id)
+	}
 	_, err := b.api.Send(msg)
 	return err
 }
