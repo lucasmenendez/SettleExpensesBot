@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"log"
 	"os"
 	"strconv"
 	"strings"
@@ -10,10 +9,13 @@ import (
 	"github.com/lucasmenendez/expensesbot/bot"
 )
 
+func parseStrs(strs string) []string {
+	return strings.Split(strings.TrimSpace(strs), ",")
+}
+
 func parseIDs(ids string) ([]int64, error) {
-	ids = strings.TrimSpace(ids)
 	var parsedIDs []int64
-	for _, strID := range strings.Split(ids, ",") {
+	for _, strID := range parseStrs(ids) {
 		intID, err := strconv.ParseInt(strID, 10, 64)
 		if err != nil {
 			return nil, err
@@ -30,15 +32,23 @@ func main() {
 		panic("token, username and password are required")
 	}
 	// parse admin users
-	adminUsers, err := parseIDs(os.Getenv("ADMIN_USERS"))
+	adminUsersIDs, err := parseIDs(os.Getenv("ADMIN_USER_IDS"))
 	if err != nil {
 		panic(err)
 	}
-	log.Println(adminUsers)
-
+	// parse admin users
+	adminUsersAliases := parseStrs(os.Getenv("ADMIN_USER_ALIASES"))
+	if len(adminUsersAliases) == 0 {
+		panic("at least one admin user alias is required")
+	} else if len(adminUsersIDs) != len(adminUsersAliases) {
+		panic("admin user ids and aliases must have the same length")
+	}
+	adminUsers := make(map[int64]string)
+	for i, id := range adminUsersIDs {
+		adminUsers[id] = adminUsersAliases[i]
+	}
 	// create and start the bot
 	b := bot.New(context.Background(), telegramToken, adminUsers)
-
 	if err := b.Start(); err != nil {
 		panic(err)
 	}

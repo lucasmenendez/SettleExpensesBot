@@ -129,25 +129,28 @@ func (b *Bot) handleSettleAndClean(update tgapi.Update) error {
 	return err
 }
 
-// format: /adduser 123456789
+// format: /adduser 123456789 alias
 func (b *Bot) handleAddUser(update tgapi.Update) error {
-	userID, err := strconv.ParseInt(update.Message.CommandArguments(), 10, 64)
+	args := strings.Split(update.Message.CommandArguments(), " ")
+	if len(args) != 2 {
+		return fmt.Errorf("invalid arguments")
+	}
+	userID, err := strconv.ParseInt(args[0], 10, 64)
 	if err != nil {
 		return fmt.Errorf("invalid user id")
 	}
-
-	b.allowedMtx.Lock()
-	defer b.allowedMtx.Unlock()
-	for _, id := range b.allowedUsers {
-		if id == userID {
-			msg := tgapi.NewMessage(update.Message.Chat.ID, fmt.Sprintf("User %d already added\n", userID))
-			_, err := b.api.Send(msg)
-			return err
+	if userAlias, exists := b.allowedUsers.Load(userID); exists {
+		sAlias, ok := userAlias.(string)
+		if !ok {
+			return fmt.Errorf("invalid user alias")
 		}
+		msg := tgapi.NewMessage(update.Message.Chat.ID, fmt.Sprintf("User %s (%d) already added\n", sAlias, userID))
+		_, err := b.api.Send(msg)
+		return err
 	}
-
-	b.allowedUsers = append(b.allowedUsers, userID)
-	msg := tgapi.NewMessage(update.Message.Chat.ID, fmt.Sprintf("User %d added\n", userID))
+	userAlias := args[1]
+	b.allowedUsers.Store(userID, userAlias)
+	msg := tgapi.NewMessage(update.Message.Chat.ID, fmt.Sprintf("User %s (%d) added\n", userAlias, userID))
 	_, err = b.api.Send(msg)
 	return err
 }
@@ -159,17 +162,18 @@ func (b *Bot) handleRemoveUser(update tgapi.Update) error {
 		return fmt.Errorf("invalid user id")
 	}
 
-	b.allowedMtx.Lock()
-	defer b.allowedMtx.Unlock()
-	for i, id := range b.allowedUsers {
-		if id == userID {
-			b.allowedUsers = append(b.allowedUsers[:i], b.allowedUsers[i+1:]...)
-			msg := tgapi.NewMessage(update.Message.Chat.ID, fmt.Sprintf("User %d removed\n", userID))
-			_, err := b.api.Send(msg)
+	if userAlias, exists := b.allowedUsers.Load(userID); exists {
+		sAlias, ok := userAlias.(string)
+		if !ok {
+			return fmt.Errorf("invalid user alias")
+		}
+		msg := tgapi.NewMessage(update.Message.Chat.ID, fmt.Sprintf("User %s (%d) removed\n", sAlias, userID))
+		if _, err := b.api.Send(msg); err != nil {
 			return err
 		}
+		b.allowedUsers.Delete(userID)
+		return nil
 	}
-
 	msg := tgapi.NewMessage(update.Message.Chat.ID, fmt.Sprintf("User %d not found\n", userID))
 	_, err = b.api.Send(msg)
 	return err
@@ -177,11 +181,27 @@ func (b *Bot) handleRemoveUser(update tgapi.Update) error {
 
 // format: /listusers
 func (b *Bot) handleListUsers(update tgapi.Update) error {
-	b.allowedMtx.Lock()
-	defer b.allowedMtx.Unlock()
+	users := map[int64]string{}
+	b.allowedUsers.Range(func(iUserID, iAlias interface{}) bool {
+		userID, ok := iUserID.(int64)
+		if !ok {
+			return false
+		}
+		sAlias, ok := iAlias.(string)
+		if !ok {
+			return false
+		}
+		users[userID] = sAlias
+		return true
+	})
+	if len(users) == 0 {
+		msg := tgapi.NewMessage(update.Message.Chat.ID, "No users allowed yet\n")
+		_, err := b.api.Send(msg)
+		return err
+	}
 	msg := tgapi.NewMessage(update.Message.Chat.ID, "Users allowed:\n")
-	for _, id := range b.allowedUsers {
-		msg.Text += fmt.Sprintf(" - %d\n", id)
+	for userID, userAlias := range users {
+		msg.Text += fmt.Sprintf(" - %s (%d)\n", userAlias, userID)
 	}
 	_, err := b.api.Send(msg)
 	return err

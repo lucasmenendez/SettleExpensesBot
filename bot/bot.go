@@ -12,9 +12,8 @@ type Bot struct {
 	// config
 	token string
 	// users
-	admins       []int64
-	allowedUsers []int64
-	allowedMtx   sync.Mutex
+	admins       map[int64]string
+	allowedUsers sync.Map
 	// handlers
 	handlers      map[string]handler
 	adminHandlers map[string]handler
@@ -26,17 +25,19 @@ type Bot struct {
 	api *tgapi.BotAPI
 }
 
-func New(ctx context.Context, token string, admins []int64) *Bot {
+func New(ctx context.Context, token string, admins map[int64]string) *Bot {
 	// create a new context for the bot and initialize it
 	botCtx, cancel := context.WithCancel(ctx)
 	b := &Bot{
 		token:        token,
 		admins:       admins,
-		allowedUsers: admins,
-		allowedMtx:   sync.Mutex{},
+		allowedUsers: sync.Map{},
 		ctx:          botCtx,
 		cancel:       cancel,
 		sessions:     initSessions(3),
+	}
+	for id, alias := range admins {
+		b.allowedUsers.Store(id, alias)
 	}
 	// initialize the handlers and admin handlers and register the bot
 	b.handlers = map[string]handler{
@@ -117,22 +118,12 @@ func (b *Bot) Wait() {
 
 // AddUser method adds a user to the list of admin users.
 func (b *Bot) isAdmin(userID int64) bool {
-	for _, adminID := range b.admins {
-		if adminID == userID {
-			return true
-		}
-	}
-	return false
+	_, exists := b.admins[userID]
+	return exists
 }
 
 // AddUser method adds a user to the list of allowed users.
 func (b *Bot) isAllowed(userID int64) bool {
-	b.allowedMtx.Lock()
-	defer b.allowedMtx.Unlock()
-	for _, allowedID := range b.allowedUsers {
-		if allowedID == userID {
-			return true
-		}
-	}
-	return false
+	_, exists := b.allowedUsers.Load(userID)
+	return exists
 }
