@@ -2,11 +2,11 @@
 ## Build docker image
 
 ```sh
-docker build -t expensesbot-img .
+docker build -t settleexpensesbot-img .
 ```
 
 ## Run the docker container
 
 ```sh
-docker run -d --name expensesbot-container -v ./:/app/snapshots --env-file .env --restart always expensesbot-img
+docker run -d --name settleexpensesbot-container -v ./:/app/snapshots --env-file .env --restart always settleexpensesbot-img
 ```

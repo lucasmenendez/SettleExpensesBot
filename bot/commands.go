@@ -108,6 +108,11 @@ func (b *Bot) handleRemoveExpense(update tgapi.Update) error {
 func (b *Bot) handleSettle(update tgapi.Update) error {
 	settler := b.sessions.getOrCreate(update.Message.Chat.ID)
 	transactions := settler.Settle()
+	if len(transactions) == 0 {
+		msg := tgapi.NewMessage(update.Message.Chat.ID, "No expenses yet\n")
+		_, err := b.api.Send(msg)
+		return err
+	}
 	msg := tgapi.NewMessage(update.Message.Chat.ID, "Settlement:\n")
 	for _, transaction := range transactions {
 		msg.Text += fmt.Sprintf(" - %s must pay %.2f to %s\n", transaction.Payer, transaction.Amount, transaction.Participants[0])
