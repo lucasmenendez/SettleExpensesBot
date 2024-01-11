@@ -9,6 +9,7 @@ import (
 )
 
 const (
+	HELP_CMD             = "help"
 	ADD_EXPENSE_CMD      = "add"
 	ADD_FOR_EXPENSE_CMD  = "addfor"
 	LIST_EXPENSES_CMD    = "list"
@@ -20,7 +21,27 @@ const (
 	LIST_USERS_CMD       = "listusers"
 )
 
+var publicCommands = map[string]string{
+	HELP_CMD:             "Show this help.",
+	ADD_EXPENSE_CMD:      "Add an expense for you. Format: /add @participant1,@participant2 12.5",
+	ADD_FOR_EXPENSE_CMD:  "Add an expense for another user. Format: /addfor @payer @participant1,@participant2 12.5",
+	LIST_EXPENSES_CMD:    "List all the expenses with their IDs.",
+	REMOVE_EXPENSE_CMD:   "Remove an expense by its ID. Format: /remove 1",
+	SETTLE_CMD:           "Show the settlement.",
+	SETTLE_AND_CLEAN_CMD: "Show the settlement and clean the expenses.",
+}
+
 type handler func(tgapi.Update) error
+
+// format: /help
+func (b *Bot) handleHelp(update tgapi.Update) error {
+	msg := tgapi.NewMessage(update.Message.Chat.ID, "Available commands:\n")
+	for cmd, desc := range publicCommands {
+		msg.Text += fmt.Sprintf(" /%s: %s\n", cmd, desc)
+	}
+	_, err := b.api.Send(msg)
+	return err
+}
 
 // format: /add @participant1,@participant2 12.5
 func (b *Bot) handleAddExpense(update tgapi.Update) error {

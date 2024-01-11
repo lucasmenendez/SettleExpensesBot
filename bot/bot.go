@@ -54,6 +54,7 @@ func New(ctx context.Context, config BotConfig) (*Bot, error) {
 	}
 	// initialize the handlers and admin handlers and register the bot
 	b.handlers = map[string]handler{
+		HELP_CMD:             b.handleHelp,
 		ADD_EXPENSE_CMD:      b.handleAddExpense,
 		ADD_FOR_EXPENSE_CMD:  b.handleAddForExpense,
 		LIST_EXPENSES_CMD:    b.handleListExpenses,
