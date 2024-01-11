@@ -43,7 +43,7 @@ func (s *sessions) getOrCreate(id int64) *settler.Settler {
 	return newSession.settler
 }
 
-func (s *sessions) cleanExpired() {
+func (s *sessions) cleanExpired() []int64 {
 	s.mtx.Lock()
 	defer s.mtx.Unlock()
 	toDelete := []int64{}
@@ -55,6 +55,7 @@ func (s *sessions) cleanExpired() {
 	for _, id := range toDelete {
 		delete(s.list, id)
 	}
+	return toDelete
 }
 
 func (s *sessions) exportSnapshot() []sessionSnapshot {
@@ -63,7 +64,8 @@ func (s *sessions) exportSnapshot() []sessionSnapshot {
 	snapshot := []sessionSnapshot{}
 	for _, session := range s.list {
 		transactions := []transactionSnapshot{}
-		for _, transaction := range session.settler.Expenses() {
+		expenses, _ := session.settler.Expenses()
+		for _, transaction := range expenses {
 			transactions = append(transactions, transactionSnapshot{
 				Amount:       transaction.Amount,
 				Payer:        transaction.Payer,

@@ -9,6 +9,7 @@ import (
 )
 
 const (
+	START_CMD            = "start"
 	HELP_CMD             = "help"
 	ADD_EXPENSE_CMD      = "add"
 	ADD_FOR_EXPENSE_CMD  = "addfor"
@@ -32,6 +33,13 @@ var publicCommands = map[string]string{
 }
 
 type handler func(tgapi.Update) error
+
+// format: /start
+func (b *Bot) handleStart(update tgapi.Update) error {
+	msg := tgapi.NewMessage(update.Message.Chat.ID, "Hello, I'm SettlerBot! Use /help to see the available commands.")
+	_, err := b.api.Send(msg)
+	return err
+}
 
 // format: /help
 func (b *Bot) handleHelp(update tgapi.Update) error {
@@ -97,15 +105,15 @@ func (b *Bot) handleAddForExpense(update tgapi.Update) error {
 // format: /list
 func (b *Bot) handleListExpenses(update tgapi.Update) error {
 	settler := b.sessions.getOrCreate(update.Message.Chat.ID)
-	expenses := settler.Expenses()
+	expenses, ids := settler.Expenses()
 	if len(expenses) == 0 {
 		msg := tgapi.NewMessage(update.Message.Chat.ID, "No expenses yet\n")
 		_, err := b.api.Send(msg)
 		return err
 	}
 	msg := tgapi.NewMessage(update.Message.Chat.ID, "Expenses:\n")
-	for id, expense := range expenses {
-		msg.Text += fmt.Sprintf(" %d. %s paid %.2f for %s\n", id, expense.Payer, expense.Amount, strings.Join(expense.Participants, ", "))
+	for i, expense := range expenses {
+		msg.Text += fmt.Sprintf(" %d. %s paid %.2f for %s\n", ids[i], expense.Payer, expense.Amount, strings.Join(expense.Participants, ", "))
 	}
 	_, err := b.api.Send(msg)
 	return err

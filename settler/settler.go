@@ -1,6 +1,9 @@
 package settler
 
-import "math"
+import (
+	"math"
+	"sort"
+)
 
 // Transaction struct represents an expense transaction.
 type Transaction struct {
@@ -37,8 +40,19 @@ func (s *Settler) RemoveExpense(id int) {
 }
 
 // Expenses method returns the map of expenses with their IDs.
-func (s *Settler) Expenses() map[int]*Transaction {
-	return s.expenses
+func (s *Settler) Expenses() ([]*Transaction, []int) {
+	ids := sort.IntSlice{}
+	for id := range s.expenses {
+		ids = append(ids, id)
+	}
+	// sort the IDs
+	sort.Sort(ids)
+	// create the list of expenses
+	expenses := []*Transaction{}
+	for _, id := range ids {
+		expenses = append(expenses, s.expenses[id])
+	}
+	return expenses, ids
 }
 
 // Settle method returns the list of transactions resulting from the settlement.

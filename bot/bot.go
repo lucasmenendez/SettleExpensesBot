@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"sync"
+	"time"
 
 	tgapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
@@ -54,6 +55,7 @@ func New(ctx context.Context, config BotConfig) (*Bot, error) {
 	}
 	// initialize the handlers and admin handlers and register the bot
 	b.handlers = map[string]handler{
+		START_CMD:            b.handleStart,
 		HELP_CMD:             b.handleHelp,
 		ADD_EXPENSE_CMD:      b.handleAddExpense,
 		ADD_FOR_EXPENSE_CMD:  b.handleAddForExpense,
@@ -102,6 +104,32 @@ func (b *Bot) Start() error {
 					continue
 				}
 				go b.handleCommand(update)
+			}
+		}
+	}()
+	// clean expired sessions in background
+	b.wg.Add(1)
+	go func() {
+		defer b.wg.Done()
+		// create a forever loop that runs every 24 hours using a ticker to
+		// clean expired sessions
+		ticker := time.NewTicker(24 * time.Hour)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-b.ctx.Done():
+				return
+			case <-ticker.C:
+				deleted := b.sessions.cleanExpired()
+				if len(deleted) > 0 {
+					log.Printf("cleaned %d expired sessions\n", len(deleted))
+					for _, id := range deleted {
+						msg := tgapi.NewMessage(id, "Your session has expired.")
+						if _, err := b.api.Send(msg); err != nil {
+							log.Println(err)
+						}
+					}
+				}
 			}
 		}
 	}()
