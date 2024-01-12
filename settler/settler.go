@@ -90,6 +90,10 @@ func (s *Settler) Balances() map[string]float64 {
 // owed and the amount owed. It repeats this process until all debts are
 // settled.
 func (s *Settler) Settle(clean bool) []*Transaction {
+	// clean the list of expenses and balances if requested
+	if clean {
+		defer s.Clean()
+	}
 	// get a copy of current balances of the participants
 	balances := s.Balances()
 	// initialize the transactions list
@@ -131,8 +135,12 @@ func (s *Settler) Settle(clean bool) []*Transaction {
 			Amount:       settleAmount,
 		})
 	}
-	if clean {
-		s.expenses = make(map[int]*Transaction)
-	}
 	return result
+}
+
+// Clean method cleans the list of expenses and balances of the settler.
+func (b *Settler) Clean() {
+	b.expenses = make(map[int]*Transaction)
+	b.balances = make(map[string]float64)
+	b.lastID = 0
 }

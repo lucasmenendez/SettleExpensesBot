@@ -188,6 +188,7 @@ func (b *Bot) handleSettle(update tgapi.Update) error {
 			transaction.Participants[0],
 		))
 	}
+	texts = append(texts, SettleBottomMessage)
 	return b.sendMessage(update.Message.Chat.ID, texts...)
 }
 

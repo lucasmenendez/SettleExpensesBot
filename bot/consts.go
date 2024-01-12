@@ -22,14 +22,15 @@ const (
 	SUMMARY_DESC         = "Show a summary of current debs."
 	SETTLE_DESC          = "Show the final summary and suggest transactions to settle debts. This command will remove all the expenses."
 	// messages
-	WelcomeMessage = "Hello, I'm SettlerBot! Use /help to see the available commands."
-	// headers
-	HelpHeader             = "Available commands:"
-	ListExpensesHeader     = "Current list of expenses:"
-	BalancesHeader         = "Current participant balances:"
-	SettleHeader           = "Suggestions for debt settlement transactions:"
-	UserListHeader         = "Allowed users:"
+	WelcomeMessage         = "Hello, I'm SettlerBot! Use /help to see the available commands."
 	SuccessInternalMessage = "Done!"
+	SettleBottomMessage    = "Expenses have been removed. Use /add or /addfor to add a new expense."
+	// headers
+	HelpHeader         = "Available commands:"
+	ListExpensesHeader = "Current list of expenses:"
+	BalancesHeader     = "Current participant balances:"
+	SettleHeader       = "Suggestions for debt settlement transactions:"
+	UserListHeader     = "Allowed users:"
 	// templates
 	HelperCommandTemplate = " /%s: %s"
 	AddSuccessTemplate    = "Ok, so %s paid %.2f for %s."
@@ -39,8 +40,8 @@ const (
 	SettleItemTemplate    = " - %s must pay %.2f to %s"
 	UserItemTemplate      = " - %s (%d)"
 	// errors
-	ErrInvalidArguments         = "invalid arguments"
-	ErrInternalProcess          = "internal process error"
+	ErrInvalidArguments         = "Invalid arguments."
+	ErrInternalProcess          = "Internal process error."
 	ErrAddInvalidArguments      = "Sorry, I can understand your message. Please use the format: /add @participant1,@participant2 12.5"
 	ErrAddForInvalidArguments   = "Sorry, I can understand your message. Please use the format: /addfor @payer @participant1,@participant2 12.5"
 	ErrRemoveInvalidArguments   = "Sorry, I can understand your message. Please use the format: /remove 29"
