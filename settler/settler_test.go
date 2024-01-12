@@ -16,7 +16,7 @@ func TestSettler(t *testing.T) {
 		settler.AddExpense(transaction.Payer, transaction.Participants, transaction.Amount)
 	}
 	// settle transactions and check results with expected results
-	settledTransactions := settler.Settle()
+	settledTransactions := settler.Settle(false)
 	expectedTransactions := []*Transaction{
 		{Payer: "Bob", Participants: []string{"Alice"}, Amount: 20.0},
 		{Payer: "Bob", Participants: []string{"Carol"}, Amount: 5.0},
@@ -42,7 +42,7 @@ func TestSettler(t *testing.T) {
 	}
 	// add a new expense and settle transactions again
 	lastAdded := settler.AddExpense("Bob", []string{"Carol", "Alice"}, 10.0)
-	settledTransactions = settler.Settle()
+	settledTransactions = settler.Settle(false)
 	// check if the number of transactions is the same as expected and check
 	// again if the transactions are the same
 	expectedTransactions2 := []*Transaction{
@@ -66,7 +66,7 @@ func TestSettler(t *testing.T) {
 	}
 	// remove the last added expense and settle transactions again
 	settler.RemoveExpense(lastAdded)
-	settledTransactions = settler.Settle()
+	settledTransactions = settler.Settle(false)
 	// check if the number of transactions is the same as expected and check
 	// again if the transactions are the same of the first settlement
 	if len(settledTransactions) != len(expectedTransactions) {

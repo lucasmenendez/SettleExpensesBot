@@ -15,6 +15,7 @@ type Transaction struct {
 // Settler struct contains the list of expenses. They can be settled and
 // cleaned, or just settled.
 type Settler struct {
+	balances map[string]float64
 	expenses map[int]*Transaction
 	lastID   int
 }
@@ -22,6 +23,7 @@ type Settler struct {
 // NewSettler creates a new Settler instance.
 func NewSettler() *Settler {
 	return &Settler{
+		balances: make(map[string]float64),
 		expenses: make(map[int]*Transaction),
 		lastID:   0,
 	}
@@ -31,11 +33,23 @@ func NewSettler() *Settler {
 func (s *Settler) AddExpense(payer string, participants []string, amount float64) int {
 	s.lastID++
 	s.expenses[s.lastID] = &Transaction{payer, participants, amount}
+	s.balances[payer] += amount
+	amountByParticipant := amount / float64(len(participants))
+	for _, participant := range participants {
+		s.balances[participant] -= amountByParticipant
+	}
 	return s.lastID
 }
 
 // RemoveExpense method removes an expense from the list of expenses.
 func (s *Settler) RemoveExpense(id int) {
+	if expense, exist := s.expenses[id]; exist {
+		s.balances[expense.Payer] -= expense.Amount
+		amountByParticipant := expense.Amount / float64(len(expense.Participants))
+		for _, participant := range expense.Participants {
+			s.balances[participant] += amountByParticipant
+		}
+	}
 	delete(s.expenses, id)
 }
 
@@ -55,6 +69,18 @@ func (s *Settler) Expenses() ([]*Transaction, []int) {
 	return expenses, ids
 }
 
+// Balances method returns the map of balances for each person. If the balance
+// is positive, the person is owed money, if it is negative, the person owes
+// money.
+func (s *Settler) Balances() map[string]float64 {
+	// create a copy of the balances map
+	balances := make(map[string]float64)
+	for person, balance := range s.balances {
+		balances[person] = balance
+	}
+	return balances
+}
+
 // Settle method returns the list of transactions resulting from the settlement.
 // It does not clean the list of expenses. The settlement algorithm consists in
 // minimizing the number of transactions needed to settle shared expenses. It
@@ -63,16 +89,9 @@ func (s *Settler) Expenses() ([]*Transaction, []int) {
 // the amounts. It then settles the debt getting the minimum between the amount
 // owed and the amount owed. It repeats this process until all debts are
 // settled.
-func (s *Settler) Settle() []*Transaction {
-	balances := make(map[string]float64)
-	// calculate the balance for each person
-	for _, transaction := range s.expenses {
-		for _, participant := range transaction.Participants {
-			ammount := transaction.Amount / float64(len(transaction.Participants))
-			balances[transaction.Payer] += ammount
-			balances[participant] -= ammount
-		}
-	}
+func (s *Settler) Settle(clean bool) []*Transaction {
+	// get a copy of current balances of the participants
+	balances := s.Balances()
 	// initialize the transactions list
 	result := []*Transaction{}
 	for {
@@ -112,13 +131,8 @@ func (s *Settler) Settle() []*Transaction {
 			Amount:       settleAmount,
 		})
 	}
+	if clean {
+		s.expenses = make(map[int]*Transaction)
+	}
 	return result
-}
-
-// SettleAndClean method cleans the list of expenses and return the list of
-// transactions resulting from the settlement.
-func (s *Settler) SettleAndClean() []*Transaction {
-	res := s.Settle()
-	s.expenses = make(map[int]*Transaction)
-	return res
 }
