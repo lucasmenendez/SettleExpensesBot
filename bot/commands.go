@@ -5,8 +5,6 @@ import (
 	"log"
 	"strconv"
 	"strings"
-
-	tgapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
 var publicCommands = map[string]string{
@@ -19,15 +17,15 @@ var publicCommands = map[string]string{
 	SETTLE_CMD:          SETTLE_DESC,
 }
 
-type handler func(tgapi.Update) error
+type handler func(*Update) error
 
 // format: /start
-func (b *Bot) handleStart(update tgapi.Update) error {
+func (b *Bot) handleStart(update *Update) error {
 	return b.sendMessage(update.Message.Chat.ID, WelcomeMessage)
 }
 
 // format: /help
-func (b *Bot) handleHelp(update tgapi.Update) error {
+func (b *Bot) handleHelp(update *Update) error {
 	texts := []string{HelpHeader}
 	for cmd, desc := range publicCommands {
 		texts = append(texts, fmt.Sprintf(HelperCommandTemplate, cmd, desc))
@@ -36,23 +34,22 @@ func (b *Bot) handleHelp(update tgapi.Update) error {
 }
 
 // format: /add @participant1,@participant2 12.5
-func (b *Bot) handleAddExpense(update tgapi.Update) error {
-	args := update.Message.CommandArguments()
-	parts := strings.Split(args, " ")
-	if len(parts) != 2 {
+func (b *Bot) handleAddExpense(update *Update) error {
+	args := update.CommandArgs()
+	if len(args) != 2 {
 		return b.sendMessage(update.Message.Chat.ID, ErrAddInvalidArguments)
 	}
 	// parse the participants
-	participants := strings.Split(parts[0], ",")
+	participants := strings.Split(args[0], ",")
 	if len(participants) < 1 {
 		return b.sendMessage(update.Message.Chat.ID, ErrAddInvalidArguments)
 	}
 	// parse the amount
-	amount, err := strconv.ParseFloat(parts[1], 64)
+	amount, err := strconv.ParseFloat(args[1], 64)
 	if err != nil {
 		return b.sendMessage(update.Message.Chat.ID, ErrAddInvalidArguments)
 	}
-	payer := fmt.Sprintf("@%s", update.Message.From.UserName)
+	payer := fmt.Sprintf("@%s", update.Message.From.Username)
 	settler := b.sessions.getOrCreate(update.Message.Chat.ID)
 	settler.AddExpense(payer, participants, amount)
 	// send the message
@@ -64,24 +61,23 @@ func (b *Bot) handleAddExpense(update tgapi.Update) error {
 }
 
 // format: /addfor @payer @participant1,@participant2 12.5
-func (b *Bot) handleAddForExpense(update tgapi.Update) error {
-	args := update.Message.CommandArguments()
-	parts := strings.Split(args, " ")
-	if len(parts) != 3 {
+func (b *Bot) handleAddForExpense(update *Update) error {
+	args := update.CommandArgs()
+	if len(args) != 3 {
 		return b.sendMessage(update.Message.Chat.ID, ErrAddForInvalidArguments)
 	}
 	// parse the payer
-	payer := parts[0]
+	payer := args[0]
 	if payer == "" {
 		return b.sendMessage(update.Message.Chat.ID, ErrAddForInvalidArguments)
 	}
 	// parse the participants
-	participants := strings.Split(parts[1], ",")
+	participants := strings.Split(args[1], ",")
 	if len(participants) < 1 {
 		return b.sendMessage(update.Message.Chat.ID, ErrAddForInvalidArguments)
 	}
 	// parse the amount
-	amount, err := strconv.ParseFloat(parts[2], 64)
+	amount, err := strconv.ParseFloat(args[2], 64)
 	if err != nil {
 		return b.sendMessage(update.Message.Chat.ID, ErrAddForInvalidArguments)
 	}
@@ -97,7 +93,7 @@ func (b *Bot) handleAddForExpense(update tgapi.Update) error {
 }
 
 // format: /list
-func (b *Bot) handleListExpenses(update tgapi.Update) error {
+func (b *Bot) handleListExpenses(update *Update) error {
 	// get the settler of the chat and list the expenses
 	settler := b.sessions.getOrCreate(update.Message.Chat.ID)
 	expenses, ids := settler.Expenses()
@@ -115,14 +111,14 @@ func (b *Bot) handleListExpenses(update tgapi.Update) error {
 			strings.Join(expense.Participants, ", "),
 		))
 	}
-	return b.sendMessage(update.Message.Chat.ID, texts...)
+	return b.sendMessage(update.Message.Chat.ID, strings.Join(texts, "\n"))
 }
 
 // format: /remove 1
-func (b *Bot) handleRemoveExpense(update tgapi.Update) error {
-	args := update.Message.CommandArguments()
+func (b *Bot) handleRemoveExpense(update *Update) error {
+	args := update.CommandArgs()
 	// parse the expense ID
-	id, err := strconv.Atoi(args)
+	id, err := strconv.Atoi(args[0])
 	if err != nil {
 		return b.sendMessage(update.Message.Chat.ID, ErrRemoveInvalidArguments)
 	}
@@ -138,7 +134,7 @@ func (b *Bot) handleRemoveExpense(update tgapi.Update) error {
 }
 
 // format: /summary
-func (b *Bot) handleSummary(update tgapi.Update) error {
+func (b *Bot) handleSummary(update *Update) error {
 	// get the settler of the chat, the balances of the participants and the
 	// list of transactions to settle the expenses
 	settler := b.sessions.getOrCreate(update.Message.Chat.ID)
@@ -161,11 +157,11 @@ func (b *Bot) handleSummary(update tgapi.Update) error {
 			transaction.Participants[0],
 		))
 	}
-	return b.sendMessage(update.Message.Chat.ID, texts...)
+	return b.sendMessage(update.Message.Chat.ID, strings.Join(texts, "\n"))
 }
 
 // format: /settle
-func (b *Bot) handleSettle(update tgapi.Update) error {
+func (b *Bot) handleSettle(update *Update) error {
 	// get the settler of the chat, the balances of the participants and the
 	// list of transactions to settle the expenses
 	settler := b.sessions.getOrCreate(update.Message.Chat.ID)
@@ -189,12 +185,12 @@ func (b *Bot) handleSettle(update tgapi.Update) error {
 		))
 	}
 	texts = append(texts, SettleBottomMessage)
-	return b.sendMessage(update.Message.Chat.ID, texts...)
+	return b.sendMessage(update.Message.Chat.ID, strings.Join(texts, "\n"))
 }
 
 // format: /adduser 123456789 alias
-func (b *Bot) handleAddUser(update tgapi.Update) error {
-	args := strings.Split(update.Message.CommandArguments(), " ")
+func (b *Bot) handleAddUser(update *Update) error {
+	args := update.CommandArgs()
 	if len(args) != 2 {
 		return b.sendMessage(update.Message.Chat.ID, ErrInvalidArguments)
 	}
@@ -211,8 +207,9 @@ func (b *Bot) handleAddUser(update tgapi.Update) error {
 }
 
 // format: /removeuser 123456789
-func (b *Bot) handleRemoveUser(update tgapi.Update) error {
-	userID, err := strconv.ParseInt(update.Message.CommandArguments(), 10, 64)
+func (b *Bot) handleRemoveUser(update *Update) error {
+	args := update.CommandArgs()
+	userID, err := strconv.ParseInt(args[0], 10, 64)
 	if err != nil {
 		return b.sendMessage(update.Message.Chat.ID, ErrInvalidArguments)
 	}
@@ -224,7 +221,7 @@ func (b *Bot) handleRemoveUser(update tgapi.Update) error {
 }
 
 // format: /listusers
-func (b *Bot) handleListUsers(update tgapi.Update) error {
+func (b *Bot) handleListUsers(update *Update) error {
 	users := b.auth.ListAllowedUsers()
 	if len(users) == 0 {
 		return b.sendMessage(update.Message.Chat.ID, ErrInternalProcess)
@@ -233,5 +230,5 @@ func (b *Bot) handleListUsers(update tgapi.Update) error {
 	for userID, userAlias := range users {
 		texts = append(texts, fmt.Sprintf(UserItemTemplate, userAlias, userID))
 	}
-	return b.sendMessage(update.Message.Chat.ID, texts...)
+	return b.sendMessage(update.Message.Chat.ID, strings.Join(texts, "\n"))
 }

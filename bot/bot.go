@@ -6,8 +6,6 @@ import (
 	"log"
 	"sync"
 	"time"
-
-	tgapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
 type BotConfig struct {
@@ -30,7 +28,8 @@ type Bot struct {
 	wg       sync.WaitGroup
 	sessions *sessions
 	// third party apis
-	api *tgapi.BotAPI
+	updates    chan *Update
+	lastUpdate int64
 }
 
 func New(ctx context.Context, config BotConfig) (*Bot, error) {
@@ -50,6 +49,8 @@ func New(ctx context.Context, config BotConfig) (*Bot, error) {
 		cancel:       cancel,
 		wg:           sync.WaitGroup{},
 		sessions:     initSessions(config.ExpirationDays),
+		updates:      make(chan *Update),
+		lastUpdate:   0,
 	}
 	// initialize the handlers and admin handlers and register the bot
 	b.handlers = map[string]handler{
@@ -78,27 +79,17 @@ func New(ctx context.Context, config BotConfig) (*Bot, error) {
 // It starts a goroutine that listens to the updates from the bot and executes
 // the corresponding handler only if the user is allowed to use it.
 func (b *Bot) Start() error {
-	// init bot api and attach it to the current bot instance
-	var err error
-	b.api, err = tgapi.NewBotAPI(b.token)
-	if err != nil {
-		log.Fatal(err)
-	}
-	// config the updates channel
-	u := tgapi.NewUpdate(0)
-	u.Timeout = 60
 	// get updates from the bot in background
-	updates := b.api.GetUpdatesChan(u)
+	b.listenForCommands()
 	b.wg.Add(1)
 	go func() {
 		defer b.wg.Done()
 		for {
 			select {
 			case <-b.ctx.Done():
-				b.api.StopReceivingUpdates()
 				return
-			case update := <-updates:
-				if update.Message == nil || !update.Message.IsCommand() {
+			case update := <-b.updates:
+				if update.Message == nil || !update.IsCommand() {
 					continue
 				}
 				go b.handleCommand(update)
@@ -122,8 +113,7 @@ func (b *Bot) Start() error {
 				if len(deleted) > 0 {
 					log.Printf("cleaned %d expired sessions\n", len(deleted))
 					for _, id := range deleted {
-						msg := tgapi.NewMessage(id, "Your session has expired.")
-						if _, err := b.api.Send(msg); err != nil {
+						if err := b.sendMessage(id, "Your session has expired."); err != nil {
 							log.Println(err)
 						}
 					}

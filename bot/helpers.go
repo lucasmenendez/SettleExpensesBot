@@ -4,9 +4,6 @@ import (
 	"encoding/json"
 	"log"
 	"os"
-	"strings"
-
-	tgapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
 func (b *Bot) tryToLoadSnapshot() error {
@@ -54,8 +51,8 @@ func (b *Bot) saveSnapshot() error {
 	return nil
 }
 
-func (b *Bot) handleCommand(update tgapi.Update) {
-	cmd := update.Message.Command()
+func (b *Bot) handleCommand(update *Update) {
+	cmd := update.Command()
 	// check if the command is registered
 	normalHandler, isNormalHandler := b.handlers[cmd]
 	adminHandler, isAdminHandler := b.adminHandlers[cmd]
@@ -71,21 +68,16 @@ func (b *Bot) handleCommand(update tgapi.Update) {
 	if isAdminHandler {
 		if b.auth.IsAdmin(from.ID) {
 			log.Printf("admin command '%s' received in chat '%d' from '%s'",
-				cmd, chatID, from.UserName)
+				cmd, chatID, from.Username)
 			if err := adminHandler(update); err != nil {
 				log.Println(err)
 			}
 		}
 	} else if isNormalHandler && b.auth.IsAllowed(from.ID) {
 		log.Printf("command '%s' received in chat '%d' from '%s'",
-			cmd, chatID, from.UserName)
+			cmd, chatID, from.Username)
 		if err := normalHandler(update); err != nil {
 			log.Println(err)
 		}
 	}
-}
-
-func (b *Bot) sendMessage(chatID int64, texts ...string) error {
-	_, err := b.api.Send(tgapi.NewMessage(chatID, strings.Join(texts, "\n")))
-	return err
 }
