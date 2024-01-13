@@ -116,7 +116,7 @@ func (s *Settler) Settle(clean bool) []*Transaction {
 			}
 		}
 		// if no one owes the most or is owed the most, debts are settled
-		if maxAmount <= 0.0 && minAmount <= 0.0 {
+		if maxAmount <= 0.001 && minAmount <= 0.001 {
 			break
 		}
 		if maxCreditor == "" && maxDebtor == "" {
