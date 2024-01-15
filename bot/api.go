@@ -7,7 +7,6 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"strings"
 	"time"
 )
 
@@ -27,8 +26,7 @@ func (b *Bot) listenForCommands() {
 			// check if the context is done, if so, return
 			select {
 			case <-b.ctx.Done():
-				if err := b.ctx.Err(); err != nil && strings.Contains(err.Error(), "context canceled") {
-					log.Println(err)
+				if err := b.ctx.Err(); err != nil {
 					return
 				}
 			default:
