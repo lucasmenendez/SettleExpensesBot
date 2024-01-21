@@ -258,3 +258,19 @@ func handleListUsers(b *bot.Bot, update *bot.Update) error {
 	}
 	return b.SendMessage(update.Message.Chat.ID, strings.Join(texts, "\n"))
 }
+
+func handleTest(b *bot.Bot, update *bot.Update) error {
+	return b.InlineMenu(update.Message.Chat.ID, 0, "test", map[string]string{
+		"Test": "test_data",
+	}, func(messageID int64, data string) {
+		if err := b.InlineMenu(update.Message.Chat.ID, messageID, "", map[string]string{
+			"Test2": "test_data_2",
+			"Test3": "test_data_3",
+		}, func(i int64, s string) {
+			log.Printf("callback 2: %d, %s", i, s)
+			b.RemoveInlineMenu(update.Message.Chat.ID, i)
+		}); err != nil {
+			log.Println(err)
+		}
+	})
+}

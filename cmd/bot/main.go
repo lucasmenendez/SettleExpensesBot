@@ -84,11 +84,11 @@ func main() {
 	b.AddAdminCommand(ADD_USER_CMD, handleAddUser)
 	b.AddAdminCommand(REMOVE_USER_CMD, handleRemoveUser)
 	b.AddAdminCommand(LIST_USERS_CMD, handleListUsers)
+	b.AddAdminCommand("test", handleTest)
 	// start the bot
 	if err := b.Start(); err != nil {
 		log.Fatal(err)
 	}
-	log.Printf("bot started at %s\n", time.Now().Format(time.RFC850))
 	// wait until an interrupt received
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)

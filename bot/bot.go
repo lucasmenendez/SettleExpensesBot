@@ -1,19 +1,15 @@
 package bot
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
 	"log"
-	"net/http"
 	"os"
 	"sync"
 	"time"
 )
 
-var logger = log.New(os.Stdout, "", log.LstdFlags)
+var logger = log.New(os.Stdout, "BOT:", log.LstdFlags|log.Lshortfile)
 
 type BotConfig struct {
 	Token          string
@@ -29,8 +25,9 @@ type Bot struct {
 	token        string
 	snapshotPath string
 	// handlers
-	handlers      map[string]CmdHandler
-	adminHandlers map[string]CmdHandler
+	handlers         map[string]CmdHandler
+	adminHandlers    map[string]CmdHandler
+	callbackHandlers map[int64]MenuCallback
 	// context and sessions
 	ctx      context.Context
 	cancel   context.CancelFunc
@@ -42,23 +39,25 @@ type Bot struct {
 }
 
 type CmdHandler func(*Bot, *Update) error
+type MenuCallback func(int64, string)
 
 func New(ctx context.Context, config BotConfig) *Bot {
-	logger.Printf("admin users: %v\n", config.AuthManager.ListAdmins())
+	logger.Printf("bot started! admin users: %v\n", config.AuthManager.ListAdmins())
 	// create a new context for the bot and initialize it
 	botCtx, cancel := context.WithCancel(ctx)
 	return &Bot{
-		Auth:          config.AuthManager,
-		token:         config.Token,
-		snapshotPath:  config.SnapshotPath,
-		handlers:      make(map[string]CmdHandler),
-		adminHandlers: make(map[string]CmdHandler),
-		ctx:           botCtx,
-		cancel:        cancel,
-		wg:            sync.WaitGroup{},
-		sessions:      initSessions(config.ExpirationDays),
-		updates:       make(chan *Update),
-		lastUpdate:    0,
+		Auth:             config.AuthManager,
+		token:            config.Token,
+		snapshotPath:     config.SnapshotPath,
+		handlers:         make(map[string]CmdHandler),
+		adminHandlers:    make(map[string]CmdHandler),
+		callbackHandlers: make(map[int64]MenuCallback),
+		ctx:              botCtx,
+		cancel:           cancel,
+		wg:               sync.WaitGroup{},
+		sessions:         initSessions(config.ExpirationDays),
+		updates:          make(chan *Update),
+		lastUpdate:       0,
 	}
 }
 
@@ -70,39 +69,8 @@ func (b *Bot) AddAdminCommand(cmd string, handler CmdHandler) {
 	b.adminHandlers[cmd] = handler
 }
 
-func (b *Bot) SendMessage(chatID int64, text string) error {
-	// compose the url to send a message to the telegram api and encode the
-	// request body
-	url := fmt.Sprintf(messageEndpointTemplate, b.token)
-	requestBody, err := json.Marshal(map[string]interface{}{
-		"chat_id": chatID,
-		"text":    text,
-	})
-	if err != nil {
-		return err
-	}
-	// make the request and check if the response
-	resp, err := http.Post(url, "application/json", bytes.NewBuffer(requestBody))
-	if err != nil {
-		return err
-	}
-	// read and parse the response body
-	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return err
-	}
-	messageResponse := struct {
-		Ok bool `json:"ok"`
-	}{}
-	if err := json.Unmarshal(body, &messageResponse); err != nil {
-		return err
-	}
-	// if the response is not ok, return an error, otherwise return nil
-	if !messageResponse.Ok {
-		return fmt.Errorf("failed to send message")
-	}
-	return nil
+func (b *Bot) AddSessionImporter(importer DataImporter) {
+	b.sessions.importer = importer
 }
 
 // Start method starts the bot and returns an error if something goes wrong.
@@ -114,7 +82,7 @@ func (b *Bot) Start() error {
 		return fmt.Errorf("error loading snapshot: %v", err)
 	}
 	// get updates from the bot in background
-	b.listenForCommands()
+	b.listenForUpdates()
 	b.wg.Add(1)
 	go func() {
 		defer b.wg.Done()
@@ -123,10 +91,12 @@ func (b *Bot) Start() error {
 			case <-b.ctx.Done():
 				return
 			case update := <-b.updates:
-				if update.Message == nil || !update.IsCommand() {
-					continue
+				switch {
+				case update.IsCallback():
+					go b.handleCallback(update)
+				case update.IsCommand():
+					go b.handleCommand(update)
 				}
-				go b.handleCommand(update)
 			}
 		}
 	}()
@@ -172,6 +142,49 @@ func (b *Bot) GetSession(update *Update, initial Data) any {
 	return b.sessions.getOrCreate(update.Message.Chat.ID, initial)
 }
 
-func (b *Bot) AddSessionImporter(importer DataImporter) {
-	b.sessions.importer = importer
+func (b *Bot) SendMessage(chatID int64, text string) error {
+	return b.sendRequest(sendMessageMethod, map[string]interface{}{
+		"chat_id": chatID,
+		"text":    text,
+	})
+}
+
+func (b *Bot) InlineMenu(chatID, messageID int64, text string, options map[string]string, callback MenuCallback) error {
+	// create the inline keyboard
+	callbackID := time.Now().Unix()
+	var keyboard [][]map[string]string
+	for text, data := range options {
+		keyboard = append(keyboard, []map[string]string{
+			{"text": text, "callback_data": encodeCallback(callbackID, data)},
+		})
+	}
+
+	// if messageID is 0 then it is a new message, otherwise it is an edit
+	if messageID == 0 {
+		if err := b.sendRequest(sendMessageMethod, map[string]any{
+			"chat_id":      chatID,
+			"text":         text,
+			"reply_markup": map[string]any{"inline_keyboard": keyboard},
+		}); err != nil {
+			return err
+		}
+	} else {
+		if err := b.sendRequest(editMessageReplyMarkupMethod, map[string]any{
+			"chat_id":      chatID,
+			"message_id":   messageID,
+			"reply_markup": map[string]any{"inline_keyboard": keyboard},
+		}); err != nil {
+			return err
+		}
+	}
+	// add the callback handler
+	b.callbackHandlers[callbackID] = callback
+	return nil
+}
+
+func (c *Bot) RemoveInlineMenu(chatID, messageID int64) error {
+	return c.sendRequest(removeMessageMethod, map[string]any{
+		"chat_id":    chatID,
+		"message_id": messageID,
+	})
 }

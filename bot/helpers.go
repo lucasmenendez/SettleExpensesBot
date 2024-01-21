@@ -1,11 +1,14 @@
 package bot
 
 import (
+	"bytes"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -32,7 +35,7 @@ func (b *Bot) tryToLoadSnapshot() error {
 	return nil
 }
 
-func (b *Bot) listenForCommands() {
+func (b *Bot) listenForUpdates() {
 	b.wg.Add(1)
 	go func() {
 		defer b.wg.Done()
@@ -98,9 +101,7 @@ func (b *Bot) listenForCommands() {
 					continue
 				}
 				b.lastUpdate = update.UpdateID + 1
-				if update.IsCommand() {
-					b.updates <- update
-				}
+				b.updates <- update
 			}
 		}
 	}()
@@ -137,6 +138,44 @@ func (b *Bot) handleCommand(update *Update) {
 	}
 }
 
+func encodeCallback(id int64, data string) string {
+	return fmt.Sprintf("%d:%s", id, hex.EncodeToString([]byte(data)))
+}
+
+func decodeCallback(encodedData string) (int64, string, error) {
+	parts := strings.Split(encodedData, ":")
+	if len(parts) != 2 {
+		return 0, "", fmt.Errorf("invalid callback data")
+	}
+	id, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil {
+		return 0, "", err
+	}
+	data, err := hex.DecodeString(parts[1])
+	if err != nil {
+		return 0, "", err
+	}
+	return id, string(data), nil
+}
+
+func (b *Bot) handleCallback(update *Update) {
+	// decode the callback data
+	id, data, err := decodeCallback(update.CallbackQuery.Data)
+	if err != nil {
+		logger.Println(err)
+		return
+	}
+	// check if the callback id is registered
+	if callback, ok := b.callbackHandlers[id]; ok {
+		// if the callback id is registered, execute the callback
+		callback(update.CallbackQuery.Message.ID, data)
+		// delete the callback id from the map
+		delete(b.callbackHandlers, id)
+		return
+	}
+	logger.Printf("callback id '%d' not found", id)
+}
+
 func (b *Bot) saveSnapshot() error {
 	snapshot, err := b.sessions.exportSnapshot()
 	if err != nil {
@@ -147,6 +186,38 @@ func (b *Bot) saveSnapshot() error {
 		if err := os.WriteFile(b.snapshotPath, snapshot, 0644); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func (b *Bot) sendRequest(method string, req map[string]any) error {
+	// compose the url to send a message to the telegram api and encode the
+	// request body
+	url := fmt.Sprintf(baseEndpointTemplate, b.token, method)
+	requestBody, err := json.Marshal(req)
+	if err != nil {
+		return err
+	}
+	// make the request and check if the response
+	resp, err := http.Post(url, "application/json", bytes.NewBuffer(requestBody))
+	if err != nil {
+		return err
+	}
+	// read and parse the response body
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+	messageResponse := struct {
+		Ok bool `json:"ok"`
+	}{}
+	if err := json.Unmarshal(body, &messageResponse); err != nil {
+		return err
+	}
+	// if the response is not ok, return an error, otherwise return nil
+	if !messageResponse.Ok {
+		return fmt.Errorf("failed to send message")
 	}
 	return nil
 }

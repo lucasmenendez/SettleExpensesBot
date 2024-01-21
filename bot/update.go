@@ -32,16 +32,28 @@ type Entity struct {
 }
 
 type Message struct {
-	Text     string    `json:"text"`
-	Date     int64     `json:"date"`
-	From     *User     `json:"from"`
-	Chat     *Chat     `json:"chat"`
-	Entities []*Entity `json:"entities"`
+	ID          int64        `json:"message_id"`
+	Text        string       `json:"text"`
+	Date        int64        `json:"date"`
+	From        *User        `json:"from"`
+	Chat        *Chat        `json:"chat"`
+	Entities    []*Entity    `json:"entities"`
+	ReplyMarkup *ReplyMarkup `json:"reply_markup"`
+}
+
+type ReplyMarkup struct {
+	InlineKeyboard [][]map[string]string `json:"inline_keyboard"`
+}
+
+type CallbackQuery struct {
+	Data    string  `json:"data"`
+	Message Message `json:"message"`
 }
 
 type Update struct {
-	UpdateID int64    `json:"update_id"`
-	Message  *Message `json:"message"`
+	UpdateID      int64          `json:"update_id"`
+	Message       *Message       `json:"message"`
+	CallbackQuery *CallbackQuery `json:"callback_query"`
 }
 
 func (u *Update) IsCommand() bool {
@@ -52,6 +64,10 @@ func (u *Update) IsCommand() bool {
 		return false
 	}
 	return u.Message.Entities[0].Type == botEntity
+}
+
+func (u *Update) IsCallback() bool {
+	return u.CallbackQuery != nil
 }
 
 func (u *Update) Command() string {
