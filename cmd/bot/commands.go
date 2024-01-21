@@ -1,10 +1,13 @@
-package bot
+package main
 
 import (
 	"fmt"
 	"log"
 	"strconv"
 	"strings"
+
+	"github.com/lucasmenendez/expensesbot/bot"
+	"github.com/lucasmenendez/expensesbot/settler"
 )
 
 var publicCommands = map[string]string{
@@ -17,89 +20,100 @@ var publicCommands = map[string]string{
 	SETTLE_CMD:          SETTLE_DESC,
 }
 
-type handler func(*Update) error
-
 // format: /start
-func (b *Bot) handleStart(update *Update) error {
-	return b.sendMessage(update.Message.Chat.ID, WelcomeMessage)
+func handleStart(b *bot.Bot, update *bot.Update) error {
+	return b.SendMessage(update.Message.Chat.ID, WelcomeMessage)
 }
 
 // format: /help
-func (b *Bot) handleHelp(update *Update) error {
+func handleHelp(b *bot.Bot, update *bot.Update) error {
 	texts := []string{HelpHeader}
 	for cmd, desc := range publicCommands {
 		texts = append(texts, fmt.Sprintf(HelperCommandTemplate, cmd, desc))
 	}
-	return b.sendMessage(update.Message.Chat.ID, strings.Join(texts, "\n"))
+	return b.SendMessage(update.Message.Chat.ID, strings.Join(texts, "\n"))
 }
 
 // format: /add @participant1,@participant2 12.5
-func (b *Bot) handleAddExpense(update *Update) error {
+func handleAddExpense(b *bot.Bot, update *bot.Update) error {
 	args := update.CommandArgs()
 	if len(args) != 2 {
-		return b.sendMessage(update.Message.Chat.ID, ErrAddInvalidArguments)
+		return b.SendMessage(update.Message.Chat.ID, ErrAddInvalidArguments)
 	}
 	// parse the participants
 	participants := strings.Split(args[0], ",")
 	if len(participants) < 1 {
-		return b.sendMessage(update.Message.Chat.ID, ErrAddInvalidArguments)
+		return b.SendMessage(update.Message.Chat.ID, ErrAddInvalidArguments)
 	}
 	// parse the amount
 	amount, err := strconv.ParseFloat(args[1], 64)
 	if err != nil {
-		return b.sendMessage(update.Message.Chat.ID, ErrAddInvalidArguments)
+		return b.SendMessage(update.Message.Chat.ID, ErrAddInvalidArguments)
 	}
 	payer := fmt.Sprintf("@%s", update.Message.From.Username)
-	settler := b.sessions.getOrCreate(update.Message.Chat.ID)
+	iSettler := b.GetSession(update, settler.NewSettler())
+	settler, ok := iSettler.(*settler.Settler)
+	if !ok {
+		return nil
+	}
+
 	settler.AddExpense(payer, participants, amount)
 	// send the message
 	msg := fmt.Sprintf(AddSuccessTemplate, payer, amount, strings.Join(participants, ", "))
-	if err := b.sendMessage(update.Message.Chat.ID, msg); err != nil {
-		return b.sendMessage(update.Message.Chat.ID, fmt.Sprintf(ErrProcesingRequestTemplate, err))
+	if err := b.SendMessage(update.Message.Chat.ID, msg); err != nil {
+		return b.SendMessage(update.Message.Chat.ID, fmt.Sprintf(ErrProcesingRequestTemplate, err))
 	}
 	return nil
 }
 
 // format: /addfor @payer @participant1,@participant2 12.5
-func (b *Bot) handleAddForExpense(update *Update) error {
+func handleAddForExpense(b *bot.Bot, update *bot.Update) error {
 	args := update.CommandArgs()
 	if len(args) != 3 {
-		return b.sendMessage(update.Message.Chat.ID, ErrAddForInvalidArguments)
+		return b.SendMessage(update.Message.Chat.ID, ErrAddForInvalidArguments)
 	}
 	// parse the payer
 	payer := args[0]
 	if payer == "" {
-		return b.sendMessage(update.Message.Chat.ID, ErrAddForInvalidArguments)
+		return b.SendMessage(update.Message.Chat.ID, ErrAddForInvalidArguments)
 	}
 	// parse the participants
 	participants := strings.Split(args[1], ",")
 	if len(participants) < 1 {
-		return b.sendMessage(update.Message.Chat.ID, ErrAddForInvalidArguments)
+		return b.SendMessage(update.Message.Chat.ID, ErrAddForInvalidArguments)
 	}
 	// parse the amount
 	amount, err := strconv.ParseFloat(args[2], 64)
 	if err != nil {
-		return b.sendMessage(update.Message.Chat.ID, ErrAddForInvalidArguments)
+		return b.SendMessage(update.Message.Chat.ID, ErrAddForInvalidArguments)
 	}
 	// get the settler of the chat and add the expense
-	settler := b.sessions.getOrCreate(update.Message.Chat.ID)
+	iSettler := b.GetSession(update, settler.NewSettler())
+	settler, ok := iSettler.(*settler.Settler)
+	if !ok {
+		return nil
+	}
 	settler.AddExpense(payer, participants, amount)
 	// send the message
 	msg := fmt.Sprintf(AddSuccessTemplate, payer, amount, strings.Join(participants, ", "))
-	if err = b.sendMessage(update.Message.Chat.ID, msg); err != nil {
-		return b.sendMessage(update.Message.Chat.ID, fmt.Sprintf(ErrProcesingRequestTemplate, err))
+	if err = b.SendMessage(update.Message.Chat.ID, msg); err != nil {
+		return b.SendMessage(update.Message.Chat.ID, fmt.Sprintf(ErrProcesingRequestTemplate, err))
 	}
 	return nil
 }
 
 // format: /list
-func (b *Bot) handleListExpenses(update *Update) error {
+func handleListExpenses(b *bot.Bot, update *bot.Update) error {
 	// get the settler of the chat and list the expenses
-	settler := b.sessions.getOrCreate(update.Message.Chat.ID)
-	expenses, ids := settler.Expenses()
+	iSettler := b.GetSession(update, settler.NewSettler())
+	settler, ok := iSettler.(*settler.Settler)
+	if !ok {
+		return nil
+	}
+	expenses, ids := settler.ListExpenses()
 	// if there are no expenses, send an error message
 	if len(expenses) == 0 {
-		return b.sendMessage(update.Message.Chat.ID, ErrNoExpenses)
+		return b.SendMessage(update.Message.Chat.ID, ErrNoExpenses)
 	}
 	// compose and send the message
 	texts := []string{ListExpensesHeader}
@@ -111,38 +125,46 @@ func (b *Bot) handleListExpenses(update *Update) error {
 			strings.Join(expense.Participants, ", "),
 		))
 	}
-	return b.sendMessage(update.Message.Chat.ID, strings.Join(texts, "\n"))
+	return b.SendMessage(update.Message.Chat.ID, strings.Join(texts, "\n"))
 }
 
 // format: /remove 1
-func (b *Bot) handleRemoveExpense(update *Update) error {
+func handleRemoveExpense(b *bot.Bot, update *bot.Update) error {
 	args := update.CommandArgs()
 	// parse the expense ID
 	id, err := strconv.Atoi(args[0])
 	if err != nil {
-		return b.sendMessage(update.Message.Chat.ID, ErrRemoveInvalidArguments)
+		return b.SendMessage(update.Message.Chat.ID, ErrRemoveInvalidArguments)
 	}
 	// get the settler of the chat and remove the expense
-	settler := b.sessions.getOrCreate(update.Message.Chat.ID)
+	iSettler := b.GetSession(update, settler.NewSettler())
+	settler, ok := iSettler.(*settler.Settler)
+	if !ok {
+		return nil
+	}
 	settler.RemoveExpense(id)
 	// send the message
 	msg := fmt.Sprintf(RemoveSuccessTemplate, id)
-	if err := b.sendMessage(update.Message.Chat.ID, msg); err != nil {
-		return b.sendMessage(update.Message.Chat.ID, fmt.Sprintf(ErrProcesingRequestTemplate, err))
+	if err := b.SendMessage(update.Message.Chat.ID, msg); err != nil {
+		return b.SendMessage(update.Message.Chat.ID, fmt.Sprintf(ErrProcesingRequestTemplate, err))
 	}
 	return nil
 }
 
 // format: /summary
-func (b *Bot) handleSummary(update *Update) error {
+func handleSummary(b *bot.Bot, update *bot.Update) error {
 	// get the settler of the chat, the balances of the participants and the
 	// list of transactions to settle the expenses
-	settler := b.sessions.getOrCreate(update.Message.Chat.ID)
-	balances := settler.Balances()
+	iSettler := b.GetSession(update, settler.NewSettler())
+	settler, ok := iSettler.(*settler.Settler)
+	if !ok {
+		return nil
+	}
+	balances := settler.ListBalances()
 	transactions := settler.Settle(false)
 	// if there are no transactions, send an error message
 	if len(transactions) == 0 {
-		return b.sendMessage(update.Message.Chat.ID, ErrNoExpenses)
+		return b.SendMessage(update.Message.Chat.ID, ErrNoExpenses)
 	}
 	// compose and send the message
 	texts := []string{BalancesHeader}
@@ -157,19 +179,23 @@ func (b *Bot) handleSummary(update *Update) error {
 			transaction.Participants[0],
 		))
 	}
-	return b.sendMessage(update.Message.Chat.ID, strings.Join(texts, "\n"))
+	return b.SendMessage(update.Message.Chat.ID, strings.Join(texts, "\n"))
 }
 
 // format: /settle
-func (b *Bot) handleSettle(update *Update) error {
+func handleSettle(b *bot.Bot, update *bot.Update) error {
 	// get the settler of the chat, the balances of the participants and the
 	// list of transactions to settle the expenses
-	settler := b.sessions.getOrCreate(update.Message.Chat.ID)
-	balances := settler.Balances()
+	iSettler := b.GetSession(update, settler.NewSettler())
+	settler, ok := iSettler.(*settler.Settler)
+	if !ok {
+		return nil
+	}
+	balances := settler.ListBalances()
 	transactions := settler.Settle(true)
 	// if there are no transactions, send an error message
 	if len(transactions) == 0 {
-		return b.sendMessage(update.Message.Chat.ID, ErrNoExpenses)
+		return b.SendMessage(update.Message.Chat.ID, ErrNoExpenses)
 	}
 	// compose and send the message
 	texts := []string{BalancesHeader}
@@ -185,50 +211,50 @@ func (b *Bot) handleSettle(update *Update) error {
 		))
 	}
 	texts = append(texts, SettleBottomMessage)
-	return b.sendMessage(update.Message.Chat.ID, strings.Join(texts, "\n"))
+	return b.SendMessage(update.Message.Chat.ID, strings.Join(texts, "\n"))
 }
 
 // format: /adduser 123456789 alias
-func (b *Bot) handleAddUser(update *Update) error {
+func handleAddUser(b *bot.Bot, update *bot.Update) error {
 	args := update.CommandArgs()
 	if len(args) != 2 {
-		return b.sendMessage(update.Message.Chat.ID, ErrInvalidArguments)
+		return b.SendMessage(update.Message.Chat.ID, ErrInvalidArguments)
 	}
 	userID, err := strconv.ParseInt(args[0], 10, 64)
 	if err != nil {
-		return b.sendMessage(update.Message.Chat.ID, ErrInvalidArguments)
+		return b.SendMessage(update.Message.Chat.ID, ErrInvalidArguments)
 	}
 	userAlias := args[1]
-	if err := b.auth.AddAllowedUser(userID, userAlias); err != nil {
+	if err := b.Auth.AddAllowedUser(userID, userAlias); err != nil {
 		log.Printf("error adding user: %s", err)
-		return b.sendMessage(update.Message.Chat.ID, ErrInternalProcess)
+		return b.SendMessage(update.Message.Chat.ID, ErrInternalProcess)
 	}
-	return b.sendMessage(update.Message.Chat.ID, SuccessInternalMessage)
+	return b.SendMessage(update.Message.Chat.ID, SuccessInternalMessage)
 }
 
 // format: /removeuser 123456789
-func (b *Bot) handleRemoveUser(update *Update) error {
+func handleRemoveUser(b *bot.Bot, update *bot.Update) error {
 	args := update.CommandArgs()
 	userID, err := strconv.ParseInt(args[0], 10, 64)
 	if err != nil {
-		return b.sendMessage(update.Message.Chat.ID, ErrInvalidArguments)
+		return b.SendMessage(update.Message.Chat.ID, ErrInvalidArguments)
 	}
-	if found := b.auth.RemoveAllowedUser(userID); found {
-		return b.sendMessage(update.Message.Chat.ID, SuccessInternalMessage)
+	if found := b.Auth.RemoveAllowedUser(userID); found {
+		return b.SendMessage(update.Message.Chat.ID, SuccessInternalMessage)
 	}
 	log.Println("user not found")
-	return b.sendMessage(update.Message.Chat.ID, ErrInternalProcess)
+	return b.SendMessage(update.Message.Chat.ID, ErrInternalProcess)
 }
 
 // format: /listusers
-func (b *Bot) handleListUsers(update *Update) error {
-	users := b.auth.ListAllowedUsers()
+func handleListUsers(b *bot.Bot, update *bot.Update) error {
+	users := b.Auth.ListAllowedUsers()
 	if len(users) == 0 {
-		return b.sendMessage(update.Message.Chat.ID, ErrInternalProcess)
+		return b.SendMessage(update.Message.Chat.ID, ErrInternalProcess)
 	}
 	texts := []string{UserListHeader}
 	for userID, userAlias := range users {
 		texts = append(texts, fmt.Sprintf(UserItemTemplate, userAlias, userID))
 	}
-	return b.sendMessage(update.Message.Chat.ID, strings.Join(texts, "\n"))
+	return b.SendMessage(update.Message.Chat.ID, strings.Join(texts, "\n"))
 }

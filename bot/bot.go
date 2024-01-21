@@ -1,27 +1,36 @@
 package bot
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"log"
+	"net/http"
+	"os"
 	"sync"
 	"time"
 )
+
+var logger = log.New(os.Stdout, "", log.LstdFlags)
 
 type BotConfig struct {
 	Token          string
 	SnapshotPath   string
 	ExpirationDays int
+	AuthManager    Auth
 }
 
 type Bot struct {
+	// auth manager
+	Auth Auth
 	// config
 	token        string
 	snapshotPath string
-	auth         *Auth
 	// handlers
-	handlers      map[string]handler
-	adminHandlers map[string]handler
+	handlers      map[string]CmdHandler
+	adminHandlers map[string]CmdHandler
 	// context and sessions
 	ctx      context.Context
 	cancel   context.CancelFunc
@@ -32,53 +41,78 @@ type Bot struct {
 	lastUpdate int64
 }
 
-func New(ctx context.Context, config BotConfig) (*Bot, error) {
-	// init auth
-	auth, err := InitAuth()
-	if err != nil {
-		return nil, err
-	}
-	log.Printf("admin users: %v\n", auth.admins)
+type CmdHandler func(*Bot, *Update) error
+
+func New(ctx context.Context, config BotConfig) *Bot {
+	logger.Printf("admin users: %v\n", config.AuthManager.ListAdmins())
 	// create a new context for the bot and initialize it
 	botCtx, cancel := context.WithCancel(ctx)
-	b := &Bot{
-		token:        config.Token,
-		snapshotPath: config.SnapshotPath,
-		auth:         auth,
-		ctx:          botCtx,
-		cancel:       cancel,
-		wg:           sync.WaitGroup{},
-		sessions:     initSessions(config.ExpirationDays),
-		updates:      make(chan *Update),
-		lastUpdate:   0,
+	return &Bot{
+		Auth:          config.AuthManager,
+		token:         config.Token,
+		snapshotPath:  config.SnapshotPath,
+		handlers:      make(map[string]CmdHandler),
+		adminHandlers: make(map[string]CmdHandler),
+		ctx:           botCtx,
+		cancel:        cancel,
+		wg:            sync.WaitGroup{},
+		sessions:      initSessions(config.ExpirationDays),
+		updates:       make(chan *Update),
+		lastUpdate:    0,
 	}
-	// initialize the handlers and admin handlers and register the bot
-	b.handlers = map[string]handler{
-		START_CMD:           b.handleStart,
-		HELP_CMD:            b.handleHelp,
-		ADD_EXPENSE_CMD:     b.handleAddExpense,
-		ADD_FOR_EXPENSE_CMD: b.handleAddForExpense,
-		LIST_EXPENSES_CMD:   b.handleListExpenses,
-		REMOVE_EXPENSE_CMD:  b.handleRemoveExpense,
-		SUMMARY_CMD:         b.handleSummary,
-		SETTLE_CMD:          b.handleSettle,
+}
+
+func (b *Bot) AddCommand(cmd string, handler CmdHandler) {
+	b.handlers[cmd] = handler
+}
+
+func (b *Bot) AddAdminCommand(cmd string, handler CmdHandler) {
+	b.adminHandlers[cmd] = handler
+}
+
+func (b *Bot) SendMessage(chatID int64, text string) error {
+	// compose the url to send a message to the telegram api and encode the
+	// request body
+	url := fmt.Sprintf(messageEndpointTemplate, b.token)
+	requestBody, err := json.Marshal(map[string]interface{}{
+		"chat_id": chatID,
+		"text":    text,
+	})
+	if err != nil {
+		return err
 	}
-	b.adminHandlers = map[string]handler{
-		ADD_USER_CMD:    b.handleAddUser,
-		REMOVE_USER_CMD: b.handleRemoveUser,
-		LIST_USERS_CMD:  b.handleListUsers,
+	// make the request and check if the response
+	resp, err := http.Post(url, "application/json", bytes.NewBuffer(requestBody))
+	if err != nil {
+		return err
 	}
-	// try to load the snapshot
-	if err := b.tryToLoadSnapshot(); err != nil {
-		return nil, fmt.Errorf("error loading snapshot: %v", err)
+	// read and parse the response body
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return err
 	}
-	return b, nil
+	messageResponse := struct {
+		Ok bool `json:"ok"`
+	}{}
+	if err := json.Unmarshal(body, &messageResponse); err != nil {
+		return err
+	}
+	// if the response is not ok, return an error, otherwise return nil
+	if !messageResponse.Ok {
+		return fmt.Errorf("failed to send message")
+	}
+	return nil
 }
 
 // Start method starts the bot and returns an error if something goes wrong.
 // It starts a goroutine that listens to the updates from the bot and executes
 // the corresponding handler only if the user is allowed to use it.
 func (b *Bot) Start() error {
+	// try to load the snapshot
+	if err := b.tryToLoadSnapshot(); err != nil {
+		return fmt.Errorf("error loading snapshot: %v", err)
+	}
 	// get updates from the bot in background
 	b.listenForCommands()
 	b.wg.Add(1)
@@ -111,10 +145,10 @@ func (b *Bot) Start() error {
 			case <-ticker.C:
 				deleted := b.sessions.cleanExpired()
 				if len(deleted) > 0 {
-					log.Printf("cleaned %d expired sessions\n", len(deleted))
+					logger.Printf("cleaned %d expired sessions\n", len(deleted))
 					for _, id := range deleted {
-						if err := b.sendMessage(id, "Your session has expired."); err != nil {
-							log.Println(err)
+						if err := b.SendMessage(id, "Your session has expired."); err != nil {
+							logger.Println(err)
 						}
 					}
 				}
@@ -130,11 +164,14 @@ func (b *Bot) Stop() {
 	b.wg.Wait()
 	// save the snapshot
 	if err := b.saveSnapshot(); err != nil {
-		log.Println(err)
+		logger.Println(err)
 	}
 }
 
-// Wait method blocks until the bot is stopped.
-func (b *Bot) Wait() {
-	<-b.ctx.Done()
+func (b *Bot) GetSession(update *Update, initial Data) any {
+	return b.sessions.getOrCreate(update.Message.Chat.ID, initial)
+}
+
+func (b *Bot) AddSessionImporter(importer DataImporter) {
+	b.sessions.importer = importer
 }
