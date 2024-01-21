@@ -6,12 +6,30 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/lucasmenendez/expensesbot/bot"
 	"github.com/lucasmenendez/expensesbot/settler"
 )
+
+func parseStrs(strs string) []string {
+	return strings.Split(strings.TrimSpace(strs), ",")
+}
+
+func parseIDs(ids string) ([]int64, error) {
+	var parsedIDs []int64
+	for _, strID := range parseStrs(ids) {
+		intID, err := strconv.ParseInt(strID, 10, 64)
+		if err != nil {
+			return nil, err
+		}
+		parsedIDs = append(parsedIDs, intID)
+	}
+	return parsedIDs, nil
+}
 
 func main() {
 	// parse env variables

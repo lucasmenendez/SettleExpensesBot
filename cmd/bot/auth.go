@@ -2,8 +2,6 @@ package main
 
 import (
 	"fmt"
-	"strconv"
-	"strings"
 	"sync"
 )
 
@@ -68,20 +66,4 @@ func (a *Auth) IsAdmin(userID int64) bool {
 func (a *Auth) IsAllowed(userID int64) bool {
 	_, ok := a.allowedUsers.Load(userID)
 	return ok
-}
-
-func parseStrs(strs string) []string {
-	return strings.Split(strings.TrimSpace(strs), ",")
-}
-
-func parseIDs(ids string) ([]int64, error) {
-	var parsedIDs []int64
-	for _, strID := range parseStrs(ids) {
-		intID, err := strconv.ParseInt(strID, 10, 64)
-		if err != nil {
-			return nil, err
-		}
-		parsedIDs = append(parsedIDs, intID)
-	}
-	return parsedIDs, nil
 }
