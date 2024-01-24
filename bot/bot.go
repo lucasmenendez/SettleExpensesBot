@@ -1,10 +1,14 @@
 package bot
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
+	"mime/multipart"
+	"net/http"
 	"os"
 	"sync"
 	"time"
@@ -280,4 +284,114 @@ func (c *Bot) RemoveMessage(chatID, messageID int64) error {
 	// delete the callback id from the map
 	delete(c.menuCallbacks, messageID)
 	return nil
+}
+
+// SendDocument method sends a document to the given chat. It receives the
+// filename and the content of the file as a string. It returns an error if
+// something goes wrong.
+func (b *Bot) SendDocument(chatID int64, filename, content string) error {
+	// create a temporary file with the content
+	tmpFile, err := os.CreateTemp("", filename)
+	if err != nil {
+		return err
+	}
+	// remove the file when the function returns and write the content to it
+	defer os.Remove(tmpFile.Name())
+	if _, err := tmpFile.WriteString(content); err != nil {
+		return err
+	}
+	if err := tmpFile.Close(); err != nil {
+		return err
+	}
+	// create the multipart form
+	var buffer bytes.Buffer
+	w := multipart.NewWriter(&buffer)
+	// add the file field
+	fw, err := w.CreateFormFile("document", filename)
+	if err != nil {
+		return err
+	}
+	// read the file content and write it to the multipart form
+	fileContent, err := os.ReadFile(tmpFile.Name())
+	if err != nil {
+		return err
+	}
+	if _, err = fw.Write(fileContent); err != nil {
+		return err
+	}
+	// add the chat id field
+	if fw, err = w.CreateFormField("chat_id"); err != nil {
+		return err
+	}
+	if _, err = fw.Write([]byte(fmt.Sprint(chatID))); err != nil {
+		return err
+	}
+	// close the multipart form
+	w.Close()
+	// create the request
+	endpoint := fmt.Sprintf(baseEndpointTemplate, b.token, sendDocumentMethod)
+	req, err := http.NewRequest("POST", endpoint, &buffer)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", w.FormDataContentType())
+	// create a new client and execute the request
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	// check the status code
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+	}
+	return nil
+}
+
+// DownloadFile method downloads a file from the given id and returns the file
+// content as a byte array. It returns an error if something goes wrong.
+func (b *Bot) DownloadFile(id string) ([]byte, error) {
+	// create the request to get the file path
+	filepathEndpoint := fmt.Sprintf(baseEndpointTemplate, b.token, getFileMethod)
+	filepathEndpoint += fmt.Sprintf("?file_id=%s", id)
+	filepathReq, err := http.Get(filepathEndpoint)
+	if err != nil {
+		return nil, err
+	}
+	defer filepathReq.Body.Close()
+	// check the status code
+	if filepathReq.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("unexpected status code: %d", filepathReq.StatusCode)
+	}
+	// parse the response
+	response := struct {
+		Ok     bool `json:"ok"`
+		Result struct {
+			FilePath string `json:"file_path"`
+		} `json:"result"`
+	}{}
+	if err := json.NewDecoder(filepathReq.Body).Decode(&response); err != nil {
+		return nil, err
+	}
+	if !response.Ok {
+		return nil, fmt.Errorf("error downloading file")
+	}
+	// create the request to download the file
+	fileEndpoint := fmt.Sprintf("https://api.telegram.org/file/bot%s/%s", b.token, response.Result.FilePath)
+	fileReq, err := http.Get(fileEndpoint)
+	if err != nil {
+		return nil, err
+	}
+	defer fileReq.Body.Close()
+	// check the status code
+	if fileReq.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("unexpected status code: %d", fileReq.StatusCode)
+	}
+	// read the file content
+	fileBody, err := io.ReadAll(fileReq.Body)
+	if err != nil {
+		return nil, err
+	}
+	return fileBody, nil
 }

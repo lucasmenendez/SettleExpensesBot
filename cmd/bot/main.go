@@ -79,6 +79,8 @@ func main() {
 	b.AddCommand(ADD_FOR_EXPENSE_CMD, handleAddForExpense)
 	b.AddCommand(LIST_EXPENSES_CMD, handleListExpenses)
 	b.AddCommand(SUMMARY_CMD, handleSummary)
+	b.AddCommand(IMPORT_CMD, handleImport)
+	b.AddCommand(EXPORT_CMD, handleExport)
 	// register the admin commands
 	b.AddAdminCommand(ADD_USER_CMD, handleAddUser)
 	b.AddAdminCommand(REMOVE_USER_CMD, handleRemoveUser)

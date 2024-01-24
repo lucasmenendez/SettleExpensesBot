@@ -8,6 +8,8 @@ const (
 	ADD_FOR_EXPENSE_CMD = "addfor"
 	LIST_EXPENSES_CMD   = "expenses"
 	SUMMARY_CMD         = "summary"
+	IMPORT_CMD          = "import"
+	EXPORT_CMD          = "export"
 	ADD_USER_CMD        = "adduser"
 	REMOVE_USER_CMD     = "removeuser"
 	LIST_USERS_CMD      = "listusers"
@@ -17,6 +19,8 @@ const (
 	ADD_FOR_EXPENSE_DESC = "Adds an expense for another user."
 	LIST_EXPENSES_DESC   = "Lists all the expenses with their IDs and allows to remove them."
 	SUMMARY_DESC         = "Shows a summary of current debs and allows to settle them."
+	EXPORT_DESC          = "Exports the current list of expenses to a file."
+	IMPORT_DESC          = "Imports a list of expenses from a file."
 	// messages
 	WelcomeMessage              = "👋🏻 Hello, I'm SettlerBot 🤖💶! Use /help to see the available commands."
 	RequestPayerPrompt          = "Type the payer username"
@@ -27,6 +31,9 @@ const (
 	ExpensesClearedMessage      = "🎉 Ok, the list of expenses has been cleared."
 	RemoveExpenseMessage        = "Do you want to remove any expense? 🗑️ 💸"
 	SelectExpenseMessage        = "Select the expense to remove ➡️ 🗑️"
+	ExportFileMessage           = "Here is your export file 📄"
+	ImportAlertMessage          = "⚠️ Importing a file will overwrite the current list of expenses. Do you want to continue? ⚠️"
+	ImportFilePrompt            = "Send the .csv file to import."
 	// headers
 	HelpHeader         = "Available commands ❓:"
 	ListExpensesHeader = "Current list of expenses 💸:"
@@ -34,6 +41,8 @@ const (
 	SummaryHeader      = "\nSuggestions for debt settlement transactions 🔄:"
 	UserListHeader     = "Allowed users:"
 	// templates
+	ImportFileTemplate          = "@%s, send me the file to import, please! 📄"
+	ImportDoneTemplate          = "%d expense(s) imported succesfully 📄✅"
 	RequestPayerTemplate        = "@%s, Who paid the expense? 🤔"
 	RequestParticipantsTemplate = "@%s, Who participated in the expense? 🤔"
 	HelperCommandTemplate       = " /%s: %s"
@@ -55,4 +64,5 @@ const (
 	ErrRemoveInvalidArguments   = "Sorry 😕, I can understand your message. Please use the format: /remove 29"
 	ErrProcesingRequestTemplate = "Sorry 😕, I can't process your request right now. Please try again later: %s"
 	ErrNoExpenses               = "Sorry 😕, there are no expenses yet. Use /add or /addfor to add a new expense."
+	ErrInvalidImportFile        = "❌ Invalid import file."
 )

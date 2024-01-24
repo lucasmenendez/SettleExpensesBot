@@ -10,4 +10,6 @@ const (
 	editMessageTextMethod        = "editMessageText"
 	editMessageReplyMarkupMethod = "editMessageReplyMarkup"
 	removeMessageMethod          = "deleteMessage"
+	sendDocumentMethod           = "sendDocument"
+	getFileMethod                = "getFile"
 )

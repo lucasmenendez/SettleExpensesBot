@@ -39,6 +39,12 @@ type ReplyToMessage struct {
 	Text      string `json:"text"`
 }
 
+type Document struct {
+	ID   string `json:"file_id"`
+	Name string `json:"file_name"`
+	Type string `json:"mime_type"`
+}
+
 type Message struct {
 	ID             int64           `json:"message_id"`
 	Text           string          `json:"text"`
@@ -48,6 +54,7 @@ type Message struct {
 	Entities       []*Entity       `json:"entities"`
 	ReplyMarkup    *ReplyMarkup    `json:"reply_markup"`
 	ReplyToMessage *ReplyToMessage `json:"reply_to_message"`
+	Document       *Document       `json:"document"`
 }
 
 type ReplyMarkup struct {
