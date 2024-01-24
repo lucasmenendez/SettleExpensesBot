@@ -8,6 +8,8 @@ Simple Telegram Bot to manage group expenses and calculate the best options to p
 * [/addfor](#supported-commands) - Adds an expense for another user.
 * [/expenses](#supported-commands) - Lists all the expenses with their IDs and allows to remove them.
 * [/summary](#supported-commands) - Shows a summary of current debs and allows to settle them.
+* [/import](#supported-commands) - Import expenses from a csv file.
+* [/export](#supported-commands) - Export expenses to a csv file.
 * [/help](#supported-commands) - Shows help message.
 
 ## How to host your bot?
