@@ -91,6 +91,9 @@ func (s *Settler) ListBalances() map[string]float64 {
 	// create a copy of the balances map
 	balances := make(map[string]float64)
 	for person, balance := range s.Balances {
+		if balance == 0 {
+			continue
+		}
 		balances[person] = balance
 	}
 	return balances
@@ -179,6 +182,6 @@ func ImportSettle(encoded []byte) (*Settler, error) {
 		return nil, err
 	}
 	newSettler.mtx = sync.RWMutex{}
-	newSettler.lastID = 0
+	newSettler.lastID = len(newSettler.Expenses)
 	return newSettler, nil
 }

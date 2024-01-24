@@ -32,6 +32,7 @@ func parseIDs(ids string) ([]int64, error) {
 }
 
 func main() {
+	log.SetFlags(log.LstdFlags | log.Lshortfile)
 	// parse env variables
 	telegramToken := os.Getenv("TELEGRAM_TOKEN")
 	if telegramToken == "" {
@@ -77,14 +78,13 @@ func main() {
 	b.AddCommand(ADD_EXPENSE_CMD, handleAddExpense)
 	b.AddCommand(ADD_FOR_EXPENSE_CMD, handleAddForExpense)
 	b.AddCommand(LIST_EXPENSES_CMD, handleListExpenses)
-	b.AddCommand(REMOVE_EXPENSE_CMD, handleRemoveExpense)
 	b.AddCommand(SUMMARY_CMD, handleSummary)
-	b.AddCommand(SETTLE_CMD, handleSettle)
+	b.AddCommand(IMPORT_CMD, handleImport)
+	b.AddCommand(EXPORT_CMD, handleExport)
 	// register the admin commands
 	b.AddAdminCommand(ADD_USER_CMD, handleAddUser)
 	b.AddAdminCommand(REMOVE_USER_CMD, handleRemoveUser)
 	b.AddAdminCommand(LIST_USERS_CMD, handleListUsers)
-	b.AddAdminCommand("test", handleTest)
 	// start the bot
 	if err := b.Start(); err != nil {
 		log.Fatal(err)
