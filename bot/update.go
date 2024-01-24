@@ -31,14 +31,23 @@ type Entity struct {
 	Type   string `json:"type"`
 }
 
+type ReplyToMessage struct {
+	MessageID int64  `json:"message_id"`
+	From      *User  `json:"from"`
+	Chat      *Chat  `json:"chat"`
+	Date      int64  `json:"date"`
+	Text      string `json:"text"`
+}
+
 type Message struct {
-	ID          int64        `json:"message_id"`
-	Text        string       `json:"text"`
-	Date        int64        `json:"date"`
-	From        *User        `json:"from"`
-	Chat        *Chat        `json:"chat"`
-	Entities    []*Entity    `json:"entities"`
-	ReplyMarkup *ReplyMarkup `json:"reply_markup"`
+	ID             int64           `json:"message_id"`
+	Text           string          `json:"text"`
+	Date           int64           `json:"date"`
+	From           *User           `json:"from"`
+	Chat           *Chat           `json:"chat"`
+	Entities       []*Entity       `json:"entities"`
+	ReplyMarkup    *ReplyMarkup    `json:"reply_markup"`
+	ReplyToMessage *ReplyToMessage `json:"reply_to_message"`
 }
 
 type ReplyMarkup struct {
@@ -70,6 +79,13 @@ func (u *Update) IsCallback() bool {
 	return u.CallbackQuery != nil
 }
 
+func (u *Update) IsReply() bool {
+	if u.Message == nil {
+		return false
+	}
+	return u.Message.ReplyToMessage != nil
+}
+
 func (u *Update) Command() string {
 	if !u.IsCommand() {
 		return ""
@@ -84,6 +100,10 @@ func (u *Update) CommandArgs() []string {
 		return nil
 	}
 	entity := u.Message.Entities[0]
-	args := strings.TrimSpace(u.Message.Text[entity.Offset+entity.Length:])
-	return strings.Split(args, argsSep)
+	argsRaw := strings.TrimSpace(u.Message.Text[entity.Offset+entity.Length:])
+	args := strings.Split(argsRaw, argsSep)
+	if len(args) == 1 && args[0] == "" {
+		return nil
+	}
+	return args
 }

@@ -7,6 +7,7 @@ const (
 
 const (
 	sendMessageMethod            = "sendMessage"
+	editMessageTextMethod        = "editMessageText"
 	editMessageReplyMarkupMethod = "editMessageReplyMarkup"
 	removeMessageMethod          = "deleteMessage"
 )

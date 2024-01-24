@@ -57,8 +57,8 @@ func (b *Bot) listenForUpdates() {
 			resp, err := http.Get(url)
 			// if something fails, log the error and retry after 5 seconds
 			if err != nil {
-				logger.Printf("error getting updates: %s", err)
-				logger.Println("retrying in 5 seconds...")
+				logger.Error("error getting updates, retrying in 5 seconds...",
+					"error", err)
 				time.Sleep(5 * time.Second)
 				continue
 			}
@@ -66,21 +66,21 @@ func (b *Bot) listenForUpdates() {
 			defer resp.Body.Close()
 			body, err := io.ReadAll(resp.Body)
 			if err != nil {
-				logger.Printf("error reading update response body: %s", err)
+				logger.Error("error reading update response body", "error", err)
 				continue
 			}
 			res := &struct {
 				Ok     bool      `json:"ok"`
-				Result []*Update `json:"result"`
+				Result []*Update `json:"result,omitempty"`
 			}{}
 			err = json.Unmarshal(body, res)
 			if err != nil {
-				logger.Printf("error unmarshalling update response: %s", err)
+				logger.Error("error unmarshalling update response", "error", err)
 				continue
 			}
 			// if the response is not ok, log the error and continue
 			if !res.Ok {
-				logger.Printf("error response from telegram: %s", string(body))
+				logger.Error("error response from telegram", "body", string(body))
 				continue
 			}
 			// if there are no updates, and the last update was more than 5
@@ -88,7 +88,7 @@ func (b *Bot) listenForUpdates() {
 			// there are updates, update the lastNonEmptyUpdate time
 			if len(res.Result) == 0 {
 				if time.Since(lastNonEmptyUpdate) > 5*time.Minute {
-					logger.Println("no updates for 5 minutes, sleeping for 10s...")
+					logger.Debug("no updates for 5 minutes, sleeping for 10s...")
 					time.Sleep(10 * time.Second)
 				}
 				continue
@@ -123,23 +123,27 @@ func (b *Bot) handleCommand(update *Update) {
 	chatID := update.Message.Chat.ID
 	if isAdminHandler {
 		if b.Auth.IsAdmin(from.ID) {
-			logger.Printf("admin command '%s' received in chat '%d' from '%s'",
-				cmd, chatID, from.Username)
+			logger.Debug("admin command received",
+				"command", cmd,
+				"chatID", chatID,
+				"from", from.Username)
 			if err := adminHandler(b, update); err != nil {
-				logger.Println(err)
+				logger.Error("error executing admin command", "error", err)
 			}
 		}
 	} else if isNormalHandler && b.Auth.IsAllowed(from.ID) {
-		logger.Printf("command '%s' received in chat '%d' from '%s'",
-			cmd, chatID, from.Username)
+		logger.Debug("command received",
+			"command", cmd,
+			"chatID", chatID,
+			"from", from.Username)
 		if err := normalHandler(b, update); err != nil {
-			logger.Println(err)
+			logger.Error("error executing command", "error", err)
 		}
 	}
 }
 
-func encodeCallback(id int64, data string) string {
-	return fmt.Sprintf("%d:%s", id, hex.EncodeToString([]byte(data)))
+func encodeCallback(messageID int64, data string) string {
+	return fmt.Sprintf("%d:%s", messageID, hex.EncodeToString([]byte(data)))
 }
 
 func decodeCallback(encodedData string) (int64, string, error) {
@@ -147,7 +151,7 @@ func decodeCallback(encodedData string) (int64, string, error) {
 	if len(parts) != 2 {
 		return 0, "", fmt.Errorf("invalid callback data")
 	}
-	id, err := strconv.ParseInt(parts[0], 10, 64)
+	messageID, err := strconv.ParseInt(parts[0], 10, 64)
 	if err != nil {
 		return 0, "", err
 	}
@@ -155,25 +159,35 @@ func decodeCallback(encodedData string) (int64, string, error) {
 	if err != nil {
 		return 0, "", err
 	}
-	return id, string(data), nil
+	return messageID, string(data), nil
 }
 
 func (b *Bot) handleCallback(update *Update) {
 	// decode the callback data
-	id, data, err := decodeCallback(update.CallbackQuery.Data)
+	messageID, data, err := decodeCallback(update.CallbackQuery.Data)
 	if err != nil {
-		logger.Println(err)
+		logger.Error("error decoding callback", "error", err)
 		return
 	}
 	// check if the callback id is registered
-	if callback, ok := b.callbackHandlers[id]; ok {
+	if callback, ok := b.menuCallbacks[messageID]; ok {
 		// if the callback id is registered, execute the callback
 		callback(update.CallbackQuery.Message.ID, data)
-		// delete the callback id from the map
-		delete(b.callbackHandlers, id)
 		return
 	}
-	logger.Printf("callback id '%d' not found", id)
+	logger.Error("callback not found", "messageID", messageID)
+}
+
+func (b *Bot) handleReply(update *Update) {
+	// get the original message id
+	messageID := update.Message.ReplyToMessage.MessageID
+	// check if the callback id is registered
+	if callback, ok := b.replyCallbacks[messageID]; ok {
+		// if the callback id is registered, execute the callback
+		callback(messageID, update)
+		return
+	}
+	logger.Error("callback not found", "messageID", messageID)
 }
 
 func (b *Bot) saveSnapshot() error {
@@ -190,34 +204,42 @@ func (b *Bot) saveSnapshot() error {
 	return nil
 }
 
-func (b *Bot) sendRequest(method string, req map[string]any) error {
+func (b *Bot) sendRequest(method string, req map[string]any) (int64, error) {
 	// compose the url to send a message to the telegram api and encode the
 	// request body
 	url := fmt.Sprintf(baseEndpointTemplate, b.token, method)
 	requestBody, err := json.Marshal(req)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	// make the request and check if the response
 	resp, err := http.Post(url, "application/json", bytes.NewBuffer(requestBody))
 	if err != nil {
-		return err
+		return 0, err
 	}
 	// read and parse the response body
 	defer resp.Body.Close()
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return err
+		return 0, err
 	}
-	messageResponse := struct {
-		Ok bool `json:"ok"`
-	}{}
+	messageResponse := map[string]any{}
 	if err := json.Unmarshal(body, &messageResponse); err != nil {
-		return err
+		return 0, err
 	}
 	// if the response is not ok, return an error, otherwise return nil
-	if !messageResponse.Ok {
-		return fmt.Errorf("failed to send message")
+	if status, ok := messageResponse["ok"]; !ok || !status.(bool) {
+		return 0, fmt.Errorf("failed to send message")
 	}
-	return nil
+	// if the response is ok, try to return the message id
+	if iResult, ok := messageResponse["result"]; ok {
+		if result, ok := iResult.(map[string]any); ok {
+			if iID, ok := result["message_id"]; ok {
+				if id, ok := iID.(float64); ok {
+					return int64(id), nil
+				}
+			}
+		}
+	}
+	return 0, nil
 }
